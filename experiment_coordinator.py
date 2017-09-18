@@ -112,13 +112,23 @@ class SampleDatabase(object):
         # This function actually fills the sample with data.
         # Its implementation depends on which map matching pipeline is optimized.
         INTERFACE_MODULE.create_evaluation_function_sample(results_path, sample)
+        # Calculate the path where the new sample's pickle file should be places
         pickle_path = os.path.join(self._sample_dir_path, os.path.basename(results_path) + ".pkl")
+        # Safety check, don't just overwrite other pickles!
+        if os.path.exists(pickle_path):
+            raise ValueError("A pickle file already exists at the calculated location:", pickle_path)
         print("\tPickling Sample object for later usage to:", pickle_path)
+        # pickle the Sample
         with open(pickle_path, 'wb') as sample_pickle_handle:
             pickle.dump(sample, sample_pickle_handle)
         complete_rosparams = sample.parameters
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
+        # Safety check, don't just overwrite a db entry
+        if params_hashed in self.db_dict.keys():
+            raise LookupError("Newly created sample's hash already exists in the database! Hash:", params_hashed,\
+                              "Existing sample's pickle path is:", self.db_dict[params_hashed]['pickle_path'])
         print("\tRegistering sample to database at hash(params):", params_hashed)
+        # Add new Sample to db and save the db
         self.db_dict[params_hashed] = {'pickle_path' : pickle_path, 'params' : complete_rosparams}
         self.save()
 
