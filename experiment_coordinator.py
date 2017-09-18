@@ -13,6 +13,52 @@ import yaml
 
 from bayes_opt import BayesianOptimization
 
+class ExperimentCoordinator(object):
+    """
+    Can be thought of as the 'toplevel' class for this repo.
+    
+    Will bring together the different parts of the system and manage the information flow
+    between them.
+    """
+
+    def __init__(self, params_dict, relpath_root):
+        """
+        :param params_dict: A dictionary which contains all parameters needed to define an experiment.
+        :param relpath_root: Basepath for all (other) relative paths in the params_dict.
+        """
+        self._params = params_dict
+        # Set the python hash seed env variable to a fixed value, so hashing the rosparam dicts delivers the same results for the same dict on different python interpreter instances.
+        os.environ['PYTHONHASHSEED'] = '42'
+
+        ###########
+        # Setup the SampleDatabase object
+        ###########
+        print("Initializing Sample database...")
+        database_path = os.path.abspath(os.path.join(relpath_root, self._params['database_path']))
+        sample_directory_path = os.path.abspath(os.path.join(relpath_root, self._params['sample_directory']))
+        self.sample_db = SampleDatabase(database_path, sample_directory_path)
+
+        ###########
+        # Setup the evaluation function object
+        ###########
+        print("Initializing EvaluationFunction...")
+        default_rosparams = rosparam.load_file(os.path.join(relpath_root, self._params['default_rosparams_yaml_path']))[0][0]
+        optimized_rosparams = self._params['optimized_rosparams']
+        #self.eval_function = EvaluationFunction(default_rosparams, self._params[..?) TODO
+
+        ###########
+        # Create an BayesianOptimization object, that contains the GPR logic.
+        # Will supply us with new param-samples and will try to model the map matcher metric function.
+        ###########
+        # Put the information about which parameters to optimize in a form bayes_opt likes:
+        print("Initializing Optimizer...")
+        optimized_parameters = dict()
+        for p_name, p_defs in self._params['optimized_rosparams'].items():
+            optimized_parameters[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
+            print("\tOptimizing parameter '", p_name, "' for optimization as '", p_defs['rosparam_name'],\
+                  "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
+        #self.optimizer = BayesianOptimization(evaluate, optimized_parameters)
+
 class SampleDatabase(object):
     """
     This object manages evaluation_function Samples in a dictionary (the "database").
@@ -75,6 +121,7 @@ class SampleDatabase(object):
         """
         Returns whether a sample with the given rosparams already exists in the database.
         """
+
         return SampleDatabase.rosparam_hash(complete_rosparams) in self.db_dict.keys()
 
     def __getitem__(self, complete_rosparams):
@@ -104,49 +151,6 @@ class SampleDatabase(object):
             if isinstance(value, list):
                 params_dict[key] = tuple(value)
         return hash(frozenset(params_dict.items()))
-
-class ExperimentCoordinator(object):
-    """
-    Can be thought of as the 'toplevel' class for this repo.
-    
-    Will bring together the different parts of the system and manage the information flow
-    between them.
-    """
-
-    def __init__(self, params_dict, relpath_root):
-        """
-        :param params_dict: A dictionary which contains all parameters needed to define an experiment.
-        :param relpath_root: Basepath for all (other) relative paths in the params_dict.
-        """
-        self._params = params_dict
-        # Set the python hash seed env variable to a fixed value, so hashing the rosparam dicts delivers the same results for the same dict on different python interpreter instances.
-        os.environ['PYTHONHASHSEED'] = '42'
-        ###########
-        # Setup the SampleDatabase object
-        ###########
-        print("Initializing Sample database...")
-        database_path = os.path.abspath(os.path.join(relpath_root, self._params['database_path']))
-        sample_directory_path = os.path.abspath(os.path.join(relpath_root, self._params['sample_directory']))
-        self.sample_db = SampleDatabase(database_path, sample_directory_path)
-        ###########
-        # Setup the evaluation function object
-        ###########
-        print("Initializing EvaluationFunction...")
-        default_rosparams = rosparam.load_file(os.path.join(relpath_root, self._params['default_rosparams_yaml_path']))[0][0]
-        optimized_rosparams = self._params['optimized_rosparams']
-        #self.eval_function = EvaluationFunction(default_rosparams, self._params[..?) TODO
-        ###########
-        # Create an BayesianOptimization object, that contains the GPR logic.
-        # Will supply us with new param-samples and will try to model the map matcher metric function.
-        ###########
-        # Put the information about which parameters to optimize in a form bayes_opt likes:
-        print("Initializing Optimizer...")
-        optimized_parameters = dict()
-        for p_name, p_defs in self._params['optimized_rosparams'].items():
-            optimized_parameters[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
-            print("\tOptimizing parameter '", p_name, "' for optimization as '", p_defs['rosparam_name'],\
-                  "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
-        #self.optimizer = BayesianOptimization(evaluate, optimized_parameters)
 
 if __name__ == '__main__': # don't execute when module is imported
     import argparse # for the cmd-line interface
