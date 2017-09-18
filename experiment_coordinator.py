@@ -10,6 +10,7 @@ import os
 import rosparam
 import pickle
 import yaml
+import sys
 
 from bayes_opt import BayesianOptimization
 
@@ -100,7 +101,7 @@ class SampleDatabase(object):
         with open(self._database_path, 'wb') as db_handle:
             pickle.dump(self.db_dict, db_handle)
 
-    def create_sample_from_map_matcher_results(self, results_path):
+    def create_sample_from_map_matcher_results(self, results_path, override_existing=False):
         """
         Creates a new Sample object from a finished map matcher run and adds it to the database.
 
@@ -115,7 +116,7 @@ class SampleDatabase(object):
         # Calculate the path where the new sample's pickle file should be places
         pickle_path = os.path.join(self._sample_dir_path, os.path.basename(results_path) + ".pkl")
         # Safety check, don't just overwrite other pickles!
-        if os.path.exists(pickle_path):
+        if not override_existing and os.path.exists(pickle_path):
             raise ValueError("A pickle file already exists at the calculated location:", pickle_path)
         print("\tPickling Sample object for later usage to:", pickle_path)
         # pickle the Sample
@@ -124,7 +125,7 @@ class SampleDatabase(object):
         complete_rosparams = sample.parameters
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
         # Safety check, don't just overwrite a db entry
-        if params_hashed in self.db_dict.keys():
+        if not override_existing and params_hashed in self.db_dict.keys():
             raise LookupError("Newly created sample's hash already exists in the database! Hash:", params_hashed,\
                               "Existing sample's pickle path is:", self.db_dict[params_hashed]['pickle_path'])
         print("\tRegistering sample to database at hash(params):", params_hashed)
@@ -174,13 +175,12 @@ if __name__ == '__main__': # don't execute when module is imported
         """
         Commandline interface for using this module
         """
-        usage_string = "TODO" # TODO
-        parser = argparse.ArgumentParser(description=usage_string)
+        parser = argparse.ArgumentParser(description="TODO") # TODO
         parser.add_argument('experiment_yaml',
                             help="Path to the yaml file which defines all parameters of one experiment run.")
-        parser.add_argument('--add-sample', '-s',
-                            dest='add_sample', default="",
-                            help="Manually add one sample to the sample database and exit.")
+        parser.add_argument('--add-samples', '-a',
+                            dest='add_samples', nargs='+',
+                            help="Manually add one or multiple samples to the sample database by supplying the path to the directories from which they can created via the INTERFACE_MODULE function. This overrides existing Samples with the same pickle location on disk. It also overrides entries in the database with the same hashed rosparams. After adding all supplied Samples, the the database gets saved and the program terminates.")
         args = parser.parse_args()
 
         # Load the parameters from the yaml into a dict
@@ -188,11 +188,11 @@ if __name__ == '__main__': # don't execute when module is imported
         relpath_root = os.path.abspath(os.path.dirname(args.experiment_yaml))
         # Open the file handle to the database dict
         experiment_coordinator = ExperimentCoordinator(experiment_parameters_dict, relpath_root)
-        if args.add_sample:
+        if args.add_samples:
             print("--> Add sample mode <--")
-            experiment_coordinator.sample_db.create_sample_from_map_matcher_results(args.add_sample)
-        else:
-            pass
+            for sample_path in args.add_samples:
+                experiment_coordinator.sample_db.create_sample_from_map_matcher_results(sample_path, override_existing=True)
+            sys.exit()
 
 
     # Execute cmdline interface
