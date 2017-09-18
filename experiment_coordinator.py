@@ -109,12 +109,17 @@ class SampleDatabase(object):
 
         print("\tCreating new Sample from map matcher result at", results_path, end=".\n")
         sample = evaluation_function.Sample()
+        # This function actually fills the sample with data.
+        # Its implementation depends on which map matching pipeline is optimized.
         INTERFACE_MODULE.create_evaluation_function_sample(results_path, sample)
+        pickle_path = os.path.join(self._sample_dir_path, os.path.basename(results_path) + ".pkl")
+        print("\tPickling Sample object for later usage to:", pickle_path)
+        with open(pickle_path, 'wb') as sample_pickle_handle:
+            pickle.dump(sample, sample_pickle_handle)
         complete_rosparams = sample.parameters
-        print("\tAdding sample at params", complete_rosparams)
-        pickle_path = os.path.join(self._sample_dir_path, os.path.basename(results_path))
-        self.db_dict[SampleDatabase.rosparam_hash(complete_rosparams)] = {'pickle_path' : pickle_path,
-                                                                          'params' : complete_rosparams}
+        params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
+        print("\tRegistering sample to database at hash(params):", params_hashed)
+        self.db_dict[params_hashed] = {'pickle_path' : pickle_path, 'params' : complete_rosparams}
         self.save()
 
     def exists(self, complete_rosparams):
