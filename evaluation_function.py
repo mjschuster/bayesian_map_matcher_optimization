@@ -13,27 +13,43 @@ class EvaluationFunction(object):
     This should reduce the time subsequent experiments will require, after a bunch of samples have already been generated.
     """
 
+    METRICS = ['mean_translation_error']
 
-    def __init__(self, sample_db, default_rosparams, _optimized_rosparams_definition):
+    def __init__(self, sample_db, default_rosparams, optimization_definitions, used_metric):
         """
         Creates an EvaluationFunction object.
         
         :param sample_db: A sample database object.
         :param default_rosparams: A dict that contains all rosparams required for running the map matcher
                                   with the default values.
-        :param optimized_rosparams_definition: A dict that contains the dict of rosparams which are beeing optimized in this experiment.
-                                               Expects a dict that contains one or multiple entires, each containing rosparam_name, min_bound and max_bound.
+        :param optimization_definitions: A dict that contains the definitions which rosparams which are beeing optimized in this experiment and within which bounds.
+                                         Expects a dict that contains one or multiple entires, each containing rosparam_name, min_bound and max_bound.
+        :param used_metric: A string to tell which metric should be used. See EvaluationFunction.METRICS for all implemented metrics.
+                            Some metrics may terminate the experiment, if your Sample instances don't contain the necessary data.
         """
+
+        # error checking
+        if not used_metric in EvaluationFunction.METRICS:
+            raise ValueError("Unknown metric", used_metric, "possible values:", EvaluationFunction.METRICS)
+
         self.sample_db = sample_db
         self._default_rosparams = default_rosparams
-        self._optimized_rosparams_definition = _optimized_rosparams_definition
+        self._optimization_definitions = optimization_definitions
 
-    def evaluate(self, optimized_rosparams):
+    def evaluate(self, args): # TODO howto args.. / **args ?
         """
-        Evaluates the function at X=rosparams and returns y=metric(map_matcher_result(X)).
-        rosparams is the default_rosparams dict updated with the optimized_rosparams dict.
+        Evaluates the function at the given parameters.
+        This method supplies the interface the Optimizer needs and checks whether the arguments are bounded correctly.
+        """
+        optimized_rosparams = {}
+        return self.get_metric_at(optimized_rosparams)
+
+    def get_metric_at(self, optimized_rosparams):
+        """
+        Calculates and returns the current metric at X and returns it, where X is the default_rosparams
+        dict updated with the given optimized_rosparams dict.
         
-        :param optimized_rosparams: 
+        :param optimized_rosparams: dict of rosparams with values in the defined bounds.
         """
 
         # Error handling
