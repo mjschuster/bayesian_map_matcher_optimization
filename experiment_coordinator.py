@@ -56,7 +56,7 @@ class ExperimentCoordinator(object):
         optimized_parameters = dict()
         for p_name, p_defs in self._params['optimized_rosparams'].items():
             optimized_parameters[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
-            print("\tOptimizing parameter '", p_name, "' for optimization as '", p_defs['rosparam_name'],\
+            print("\tOptimizing parameter '", p_name, "' as rosparam '", p_defs['rosparam_name'],\
                   "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
         #self.optimizer = BayesianOptimization(evaluate, optimized_parameters)
 
@@ -87,19 +87,19 @@ class SampleDatabase(object):
             print("\tFound existing datapase pickle, loading from:", self._database_path, end=" ")
             # ...initialize the database from the file handle (hopefully points to a pickled dict...)
             with open(database_path, 'rb') as db_handle:
-                self.db_dict = pickle.load(db_handle)
-            print("- Loaded", len(self.db_dict), "samples.")
+                self._db_dict = pickle.load(db_handle)
+            print("- Loaded", len(self._db_dict), "samples.")
         else:
             print("\tDidn't find existing database pickle, initializing new database at", self._database_path, end=".\n")
-            self.db_dict = {} # ..otherwise initialize as an empty dict and save it
-            self.save()
+            self._db_dict = {} # ..otherwise initialize as an empty dict and save it
+            self._save()
 
-    def save(self):
+    def _save(self):
         """
         Pickles the current state of the database dict.
         """
         with open(self._database_path, 'wb') as db_handle:
-            pickle.dump(self.db_dict, db_handle)
+            pickle.dump(self._db_dict, db_handle)
 
     def create_sample_from_map_matcher_results(self, results_path, override_existing=False):
         """
@@ -118,27 +118,65 @@ class SampleDatabase(object):
         # Safety check, don't just overwrite other pickles!
         if not override_existing and os.path.exists(pickle_path):
             raise ValueError("A pickle file already exists at the calculated location:", pickle_path)
-        print("\tPickling Sample object for later usage to:", pickle_path)
-        # pickle the Sample
-        with open(pickle_path, 'wb') as sample_pickle_handle:
-            pickle.dump(sample, sample_pickle_handle)
         complete_rosparams = sample.parameters
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
         # Safety check, don't just overwrite a db entry
-        if not override_existing and params_hashed in self.db_dict.keys():
+        if not override_existing and params_hashed in self._db_dict.keys():
             raise LookupError("Newly created sample's hash already exists in the database! Hash:", params_hashed,\
-                              "Existing sample's pickle path is:", self.db_dict[params_hashed]['pickle_path'])
-        print("\tRegistering sample to database at hash(params):", params_hashed)
+                              "Existing sample's pickle path is:", self._db_dict[params_hashed]['pickle_path'])
+        print("\tPickling Sample object for later usage to:", pickle_path)
+        self._pickle_sample(sample, pickle_path)
         # Add new Sample to db and save the db
-        self.db_dict[params_hashed] = {'pickle_path' : pickle_path, 'params' : complete_rosparams}
-        self.save()
+        print("\tRegistering sample to database at hash(params):", params_hashed)
+        self._db_dict[params_hashed] = {'pickle_path': pickle_path, 'params': complete_rosparams}
+        self._save()
+
+    def remove_sample(self, sample_identifier):
+        """
+        Removes a Sample's entry from the database and its pickled representation from disk.
+
+        :param sample_identifier: A string which identifies the sample.
+                                  Can either be a Sample's hash or
+                                  the path where its pickled representation is stored on disk.
+        """
+
+        if os.path.isfile(sample_identifier): # sample_identifier points to the pickle file
+            pickle_path = sample_identifier
+            # Get the sample's representation
+            sample = self._unpickle_sample(pickle_path)
+            # Try to find and remove the Sample's entry in the database
+            if not self.exists(sample.parameters):
+                print("\tWarning: Couldn't find db-entry for pickled Sample '" + pickle_path + "'.")
+            else:
+                print("\tRemoving Sample's db entry '" + str(self.rosparam_hash(sample.parameters)) + "'.")
+                del self._db_dict[SampleDatabase.rosparam_hash(sample.parameters)]
+            # Remove it from disk
+            print("\tRemoving Sample's pickle '" + pickle_path + "' from disk.")
+            os.remove(pickle_path)
+        else: # sample_identifier should be a hash in the db
+            sample_hash = int(sample_identifier) # throws ValueError, if the file doesn't exist...
+            if not sample_hash in self._db_dict:
+                raise LookupError("Couldn't find a sample with hash", sample_hash)
+            # Get sample from pickled representation
+            pickle_path = self._db_dict[sample_hash]['pickle_path']
+            if not os.path.isfile(pickle_path):
+                print("\tWarning: Couldn't find Sample's pickled representation at '" +\
+                      pickle_path + "'.")
+            else:
+                print("\tRemoving Sample's pickle '" + pickle_path + "' from disk.")
+                os.remove(pickle_path)
+            print("\tRemoving Sample's db entry '" + str(sample_hash) + "'.")
+            del self._db_dict[sample_hash]
+            
+        # Only save the db at the end, after we know everything worked
+        self._save()
 
     def exists(self, complete_rosparams):
         """
         Returns whether a sample with the given rosparams already exists in the database.
         """
 
-        return SampleDatabase.rosparam_hash(complete_rosparams) in self.db_dict.keys()
+        return SampleDatabase.rosparam_hash(complete_rosparams) in self._db_dict.keys()
 
     def __getitem__(self, complete_rosparams):
         """
@@ -147,13 +185,37 @@ class SampleDatabase(object):
         :param complete_rosparams: The complete rosparams dictionary (not just the ones getting optimized).
         """
 
-        # Get the sample
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
-        extracted_sample = self.db_dict[params_hashed]
+        # Get the sample's db entry
+        sample_location = self._db_dict[params_hashed]['pickle_path']
+        # load the Sample from disk
+        extracted_sample = self._unpickle_sample(sample_location)
         # Do a sanity check of the parameters, just in case of a hash collision
-        if not complete_rosparams == extracted_sample['params']:
-            raise LookupError("Got a sample with hash " + params_hashed + ", but its parameters didn't match the requested parameters. (Hash function collision?)", complete_rosparams, extracted_sample['params'])
+        if not complete_rosparams == extracted_sample.parameters:
+            raise LookupError("Got a sample with hash " + params_hashed + ", but its parameters didn't match the requested parameters. (Hash function collision?)", complete_rosparams, extracted_sample.parameters)
         return extracted_sample
+
+    def _pickle_sample(self, sample, pickle_path):
+        """
+        Helper method for saving samples to disk
+
+        :param sample: The evaluation_function Sample which should be pickled.
+        :param pickle_path: The path to where the Sample's pickled representation should be written to.
+        """
+        with open(pickle_path, 'wb') as sample_pickle_handle:
+            pickle.dump(sample, sample_pickle_handle)
+
+    def _unpickle_sample(self, pickle_path):
+        """
+        Helper method for loading samples from disk
+
+        :param pickle_path: Path to the Sample's pickled representation.
+        """
+        with open(pickle_path, 'rb') as sample_pickle_handle:
+            sample = pickle.load(sample_pickle_handle)
+            if not isinstance(sample, evaluation_function.Sample):
+                raise TypeError("The object unpickled from", pickle_path, "isn't an Sample instance!")
+            return sample
 
     @classmethod
     def rosparam_hash(cls, params_dict):
@@ -181,6 +243,12 @@ if __name__ == '__main__': # don't execute when module is imported
                               " It only requires passing a yaml file as experiment_yaml parameter."
                               " See the other arguments' descriptions for different modes."
                              )
+        rm_arg_help = ("Enters Remove Samples mode:"
+                       " Manually remove EvaluationFunction Samples from the database and from disk."
+                       " (only the pickled Sample, not the map matcher results from which it was generated)"
+                       " Samples can be identified via their hash or the pickle path."
+                       " Exits after all supplied samples have been removed."
+                      )
         add_arg_help = ("Enters Add Samples mode:"
                         " Manually add EvaluationFunction Samples to the database."
                         " Simply supply the paths to the directories from which INTERFACE_MODULE can create it."
@@ -192,6 +260,8 @@ if __name__ == '__main__': # don't execute when module is imported
         parser = argparse.ArgumentParser(description=description_string)
         parser.add_argument('experiment_yaml',
                             help="Path to the yaml file which defines all parameters of one experiment run.")
+        parser.add_argument('--remove-samples', '-rm',
+                            dest='remove_samples', nargs='+', help=rm_arg_help)
         parser.add_argument('--add-samples', '-a',
                             dest='add_samples', nargs='+', help=add_arg_help)
         args = parser.parse_args()
@@ -201,11 +271,20 @@ if __name__ == '__main__': # don't execute when module is imported
         relpath_root = os.path.abspath(os.path.dirname(args.experiment_yaml))
         # Open the file handle to the database dict
         experiment_coordinator = ExperimentCoordinator(experiment_parameters_dict, relpath_root)
+
+        # Check cmdline arguments for special modes, default mode (Experiment mode) is below
+        if args.remove_samples:
+            print("--> Mode: Remove Samples <--")
+            for sample_id in args.remove_samples:
+                experiment_coordinator.sample_db.remove_sample(sample_id)
+            sys.exit()
         if args.add_samples:
-            print("--> Add sample mode <--")
+            print("--> Mode: Add Samples <--")
             for sample_path in args.add_samples:
                 experiment_coordinator.sample_db.create_sample_from_map_matcher_results(sample_path, override_existing=True)
             sys.exit()
+
+        print("--> Mode: Experiment <--")
 
 
     # Execute cmdline interface
