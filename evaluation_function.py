@@ -32,40 +32,66 @@ class EvaluationFunction(object):
         if not used_metric in EvaluationFunction.METRICS:
             raise ValueError("Unknown metric", used_metric, "possible values:", EvaluationFunction.METRICS)
 
-        self.sample_db = sample_db
+        self._sample_db = sample_db
         self._default_rosparams = default_rosparams
         self._optimization_definitions = optimization_definitions
+        self._used_metric = used_metric
 
-    def evaluate(self, args): # TODO howto args.. / **args ?
+    def evaluate(self, **optimized_rosparams):
         """
-        Evaluates the function at the given parameters.
-        This method supplies the interface the Optimizer needs and checks whether the arguments are bounded correctly.
-        """
-        optimized_rosparams = {}
-        return self.get_metric_at(optimized_rosparams)
+        This method supplies the interface for the Optimizer.
+        Calculates and returns the current metric ("y") at the given parameters ("X").
 
-    def get_metric_at(self, optimized_rosparams):
+        Will convert the optimized_rosparams (from the Optimizer-world) to the complete_rosparams which define 
+        a Sample in the map matching pipeline.
+
+        This function may return quickly, if the sample already exists in the sample database.
+        Otherwise, the call will block until the map matching pipeline has finished generating the requested sample.
+
+        :param optimized_rosparams: A keyworded argument list.
         """
-        Calculates and returns the current metric at X and returns it, where X is the default_rosparams
-        dict updated with the given optimized_rosparams dict.
-        
-        :param optimized_rosparams: dict of rosparams with values in the defined bounds.
+
+        # Error handling - Check if given optimized_rosparams satisfy the optimization definitions
+        for p_name, p_dict in self._optimization_definitions.items():
+            if not p_dict['rosparam_name'] in optimized_rosparams:
+                raise ValueError(p_dict['rosparam_name'] + " should get optimized, but wasn't in given dict of optimized parameters.", optimized_rosparams)
+            p_value = optimized_rosparams[p_dict['rosparam_name']]
+            if p_value > p_dict['max_bound']:
+                raise ValueError(p_dict['rosparam_name'] + " value (" + str(p_value) + ") is over max bound (" +\
+                                 str(p_dict['max_bound']) + ").")
+            if p_value < p_dict['min_bound']:
+                raise ValueError(p_dict['rosparam_name'] + " value (" + str(p_value) + ") is under min bound (" +\
+                                 str(p_dict['min_bound']) + ").")
+        for p_name in optimized_rosparams.keys(): # Check against parameters which shouldn't get optimized
+            if not p_name in [opt_param['rosparam_name'] for opt_param in self._optimization_definitions.values()]:
+                raise ValueError(str(p_name) + " shouldn't get optimized, but was in given dict of optimized parameters.")
+
+        print("\tEvaluating sample at", optimized_rosparams.items())
+        # Create the full set of parameters by updating the default parameters with the optimized parameters.
+        complete_rosparams = self._default_rosparams.copy()
+        complete_rosparams.update(optimized_rosparams)
+        # Get the sample from the db (this call blocks until the sample is generated, if it isn't in the db)
+        sample = self._sample_db[complete_rosparams]
+        # Calculate the metric
+        return self.metric(sample)
+
+    def metric(self, sample):
+        """
+        Returns the active metric's value for a given Sample object.
+        Its concrete behaviour depends on the used_metric parameter given to the init method.
+
+        :param sample: An evaluation_function Sample.
         """
 
         # Error handling
-        for param in self._optimized_rosparams.keys():
-            if not param in optimized_rosparams:
-                raise ValueError(str(param) + " should get optimized, but wasn't in given dict of optimized parameters.")
-        for param in optimized_rosparams.keys():
-            if not param in self._optimized_rosparams:
-                raise ValueError(str(param) + " shouldn't get optimized, but was in given dict of optimized parameters.")
-        print("Evaluating sample at", optimized_rosparams.items())
-        # Create the full set of parameters by updating the default parameters with the optimized parameters.
-        rosparams = self._default_rosparams.copy()
-        rosparams.update(optimized_rosparams)
+        if not isinstance(sample, Sample):
+            raise ValueError("Given sample object isn't a Sample.", sample)
 
-        sample = self._sample_db.get_sample(rosparams)
-        print("Got sample", sample)
+        if self._used_metric == 'mean_translation_error':
+            value = sum(sample.translation_errors) / len(sample.translation_errors)
+
+        print("\tSample's result with metric '" + self._used_metric + "': ", value)
+        return value
 
 class Sample(object):
     """

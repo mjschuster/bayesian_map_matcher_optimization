@@ -6,6 +6,8 @@ import dlr_map_matcher_interface_tools
 INTERFACE_MODULE = dlr_map_matcher_interface_tools
 
 # Foreign packages
+import matplotlib.pyplot as plt
+import numpy as np
 import os
 import rosparam
 import pickle
@@ -44,9 +46,10 @@ class ExperimentCoordinator(object):
         ###########
         print("Initializing EvaluationFunction...")
         default_rosparams = rosparam.load_file(os.path.join(relpath_root, self._params['default_rosparams_yaml_path']))[0][0]
-        optimized_rosparams = self._params['optimized_rosparams']
-        #self.eval_function = EvaluationFunction(default_rosparams, self._params[..?) TODO
-
+        optimization_definitions = self._params['optimization_definitions']
+        self.eval_function = evaluation_function.EvaluationFunction(self.sample_db, default_rosparams,
+                                                                    optimization_definitions,
+                                                                    self._params['evaluation_function_metric'])
         ###########
         # Create an BayesianOptimization object, that contains the GPR logic.
         # Will supply us with new param-samples and will try to model the map matcher metric function.
@@ -54,11 +57,45 @@ class ExperimentCoordinator(object):
         # Put the information about which parameters to optimize in a form bayes_opt likes:
         print("Initializing Optimizer...")
         optimized_parameters = dict()
-        for p_name, p_defs in self._params['optimized_rosparams'].items():
+        for p_name, p_defs in self._params['optimization_definitions'].items():
             optimized_parameters[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
             print("\tOptimizing parameter '", p_name, "' as rosparam '", p_defs['rosparam_name'],\
                   "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
-        #self.optimizer = BayesianOptimization(evaluate, optimized_parameters)
+        # Create the optimizer object
+        self.optimizer = BayesianOptimization(self.eval_function.evaluate, optimized_parameters)
+        # Get the initialization samples from the EvaluationFunction
+        print("\tInitializing optimizer with", self._params['optimizer_initialization'])
+        # init_dict will store the initialization data in the format the optimizer likes:
+        # A list for each parameter with their values plus a 'target' list for the respective result value
+        init_dict = {p_name: [] for p_name in self._params['optimizer_initialization'][0]}
+        init_dict['targets'] = []
+        # Fill init_dict:
+        for optimized_rosparams in self._params['optimizer_initialization']:
+            t = self.eval_function.evaluate(**optimized_rosparams)
+            init_dict['targets'].append(t)
+            for p_name, p_value in optimized_rosparams.items():
+                init_dict[p_name].append(p_value)
+        self.optimizer.initialize(init_dict)
+
+    def save_gp_plot(self, plot_name):
+        """
+        Helper for saving plots of the GPR state to disk.
+        """
+
+        renderspace_x = np.atleast_2d(np.linspace(0, 1, 1000)).T
+        y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
+
+        plt.plot(self.optimizer.X.flatten(), self.optimizer.Y, 'r.', markersize=10, label=u'Observations')
+        plt.plot(renderspace_x, y_pred, 'b-', label=u'Prediction')
+        plt.fill(np.concatenate([renderspace_x, renderspace_x[::-1]]),
+                 np.concatenate([y_pred - 1.9600 * sigma,
+                                (y_pred + 1.9600 * sigma)[::-1]]),
+                 alpha=.5, fc='b', ec='None', label='95% confidence interval')
+        plt.xlabel('$x$')
+        plt.ylabel('$f(x)$')
+        plt.ylim(0, 1.2)
+        plt.legend(loc='upper left')
+        plt.savefig(os.path.join(self._params['plots_directory'], plot_name))
 
 class SampleDatabase(object):
     """
@@ -285,7 +322,8 @@ if __name__ == '__main__': # don't execute when module is imported
             sys.exit()
 
         print("--> Mode: Experiment <--")
-
+        experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
+        experiment_coordinator.save_gp_plot("01_after_max.svg")
 
     # Execute cmdline interface
     command_line_interface()
