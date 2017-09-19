@@ -175,12 +175,25 @@ if __name__ == '__main__': # don't execute when module is imported
         """
         Commandline interface for using this module
         """
-        parser = argparse.ArgumentParser(description="TODO") # TODO
+        description_string = ("Command line utility for running Bayesian Optimization experiments on"
+                              " parameter sets of a feature-based map matching pipeline."
+                              " The program's default mode is the Experiment Mode."
+                              " It only requires passing a yaml file as experiment_yaml parameter."
+                              " See the other arguments' descriptions for different modes."
+                             )
+        add_arg_help = ("Enters Add Samples mode:"
+                        " Manually add EvaluationFunction Samples to the database."
+                        " Simply supply the paths to the directories from which INTERFACE_MODULE can create it."
+                        " In this mode, existing Samples with the same pickle location on disk,"
+                        " and existing entries in the database (same rosparams-hash) will be overwritten."
+                        " Exits after adding all supplied samples."
+                       )
+
+        parser = argparse.ArgumentParser(description=description_string)
         parser.add_argument('experiment_yaml',
                             help="Path to the yaml file which defines all parameters of one experiment run.")
         parser.add_argument('--add-samples', '-a',
-                            dest='add_samples', nargs='+',
-                            help="Manually add one or multiple samples to the sample database by supplying the path to the directories from which they can created via the INTERFACE_MODULE function. This overrides existing Samples with the same pickle location on disk. It also overrides entries in the database with the same hashed rosparams. After adding all supplied Samples, the the database gets saved and the program terminates.")
+                            dest='add_samples', nargs='+', help=add_arg_help)
         args = parser.parse_args()
 
         # Load the parameters from the yaml into a dict
