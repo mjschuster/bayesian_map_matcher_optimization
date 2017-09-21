@@ -1,9 +1,11 @@
+import sys
 import rosparam
 import os
 import pickle
 import subprocess
 import time
 import yaml
+import ast
 
 ###########################################
 # Helper functions, not directly used by the experiment_coordinator
@@ -11,11 +13,23 @@ import yaml
 def _run_evaluation(command):
     """
     Helper method; Starts the evaluation program as subprocess, since it only works with python2 (thanks, ROS...)
-    Yields the subprocess' output as it gets generated.
+    Yields strings to describe the subprocess' status as it runs.
     """
     eval_process = subprocess.Popen(command, stdout=subprocess.PIPE, universal_newlines=True)
     for stdout_line in iter(eval_process.stdout.readline, ""):
-        yield stdout_line 
+        if stdout_line.startswith('{'): # Is the output a python dict's string representation?
+            status_dict = ast.literal_eval(stdout_line)
+            status_string = "\r                                                            " +\
+                            "                                   \r" +\
+                            "\t\t[Active threads " + str(status_dict['active_jobs']) +\
+                                               "/" + str(status_dict['max_parallel_jobs']) + "]" +\
+                            " [Finished jobs " + str(status_dict['completed_jobs']) +\
+                                           "/" + str(status_dict['total_jobs']) + "]" +\
+                            " [Completed in " + str(status_dict['estimated_finish_time']) + "]"
+        else: # otherwise just yield the string
+            status_string = "\t\t" + stdout_line 
+        yield status_string
+        sys.stdout.flush()
     eval_process.stdout.close()
     return_code = eval_process.wait()
     if return_code:
@@ -86,7 +100,8 @@ def generate_sample(rosparams, sample_generator_config):
         yaml.dump(rosparams, rosparams_file)
 
     max_threads = str(sample_generator_config['max_parallel_jobs'])
-    evaluation_command = [sample_generator_config['evaluator_executable'], yaml_path, "-j " + max_threads]
+    evaluation_command = [sample_generator_config['evaluator_executable'], yaml_path,
+                          "-j " + max_threads, "--machine-mode"]
     print("\t\tStarting evaluation process in directory", env_dir)
     # Run the evaluation and print its output
     for output in _run_evaluation(evaluation_command):
