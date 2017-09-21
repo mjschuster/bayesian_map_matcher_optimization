@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+
 # Local imports
 import evaluation_function
 # import the DLR specific code to gather data
@@ -30,23 +31,32 @@ class ExperimentCoordinator(object):
         :param relpath_root: Basepath for all (other) relative paths in the params_dict.
         """
         self._params = params_dict
+        self._relpath_root = relpath_root
         # Set the python hash seed env variable to a fixed value, so hashing the rosparam dicts delivers the same results for the same dict on different python interpreter instances.
         os.environ['PYTHONHASHSEED'] = '42'
+
+        # Resolve relative paths
+        database_path = self._resolve_relative_path(self._params['database_path'])
+        sample_directory_path = self._resolve_relative_path(self._params['sample_directory'])
+        rosparams_path = self._resolve_relative_path(self._params['default_rosparams_yaml_path'])
+        sample_generator_config = self._params['sample_generator_config']
+        sample_generator_config['evaluator_executable'] = self._resolve_relative_path(sample_generator_config['evaluator_executable'])
+        sample_generator_config['environment'] = self._resolve_relative_path(sample_generator_config['environment'])
+        sample_generator_config['dataset'] = self._resolve_relative_path(sample_generator_config['dataset'])
 
         ###########
         # Setup the SampleDatabase object
         ###########
-        print("Initializing Sample database...")
-        database_path = os.path.abspath(os.path.join(relpath_root, self._params['database_path']))
-        sample_directory_path = os.path.abspath(os.path.join(relpath_root, self._params['sample_directory']))
-        self.sample_db = SampleDatabase(database_path, sample_directory_path)
+        print("Setting up Sample database...")
+        # Create the sample db
+        self.sample_db = SampleDatabase(database_path, sample_directory_path, sample_generator_config)
 
         ###########
         # Setup the evaluation function object
         ###########
-        print("Initializing EvaluationFunction...")
-        default_rosparams = rosparam.load_file(os.path.join(relpath_root, self._params['default_rosparams_yaml_path']))[0][0]
+        print("Setting up EvaluationFunction...")
         optimization_definitions = self._params['optimization_definitions']
+        default_rosparams = rosparam.load_file(rosparams_path)[0][0]
         self.eval_function = evaluation_function.EvaluationFunction(self.sample_db, default_rosparams,
                                                                     optimization_definitions,
                                                                     self._params['evaluation_function_metric'])
@@ -55,7 +65,7 @@ class ExperimentCoordinator(object):
         # Will supply us with new param-samples and will try to model the map matcher metric function.
         ###########
         # Put the information about which parameters to optimize in a form bayes_opt likes:
-        print("Initializing Optimizer...")
+        print("Setting up Optimizer...")
         optimized_parameters = dict()
         for p_name, p_defs in self._params['optimization_definitions'].items():
             optimized_parameters[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
@@ -65,6 +75,8 @@ class ExperimentCoordinator(object):
         self.optimizer = BayesianOptimization(self.eval_function.evaluate, optimized_parameters)
         # Get the initialization samples from the EvaluationFunction
         print("\tInitializing optimizer with", self._params['optimizer_initialization'])
+
+    def initialize_optimizer(self):
         # init_dict will store the initialization data in the format the optimizer likes:
         # A list for each parameter with their values plus a 'target' list for the respective result value
         init_dict = {p_name: [] for p_name in self._params['optimizer_initialization'][0]}
@@ -97,22 +109,32 @@ class ExperimentCoordinator(object):
         plt.legend(loc='upper left')
         plt.savefig(os.path.join(self._params['plots_directory'], plot_name))
 
+    def _resolve_relative_path(self, path):
+        """
+        Helper function for resolving paths relative to the _relpath_root-member.
+        """
+        if not os.path.isabs(path):
+            return os.path.join(self._relpath_root, path)
+        else:
+            return path
+
 class SampleDatabase(object):
     """
     This object manages evaluation_function Samples in a dictionary (the "database").
-    It knows nothing of the currently optimized parameters or their bounds, this functionality is covered in the evaluation_function module or the ExperimentCoordinator class.
+    It knows nothing of the currently optimized parameters or their bounds, this functionality is covered in the evaluation_function module.
 
     The databse-dict is indexed by the hashed parameters (hashed using the rosparam_hash function) and contains:
         * pickle_path: The path to a pickled evaluation_function Sample.
         * params: The complete rosparams dict used to generate this Sample. Its hash should be equal to the item's key.
     """
 
-    def __init__(self, database_path, sample_dir_path):
+    def __init__(self, database_path, sample_dir_path, sample_generator_config):
         """
         Initializes a SampleDatabase object.
 
         :param database_path: Path to the database file; The pickled database dict.
         :param sample_dir_path: Path to the directory where samples created by this SampleDatabase should be stored.
+        :param sample_generator_config: Config for the sample generation in the INTERFACE_MODULE.
         """
         # Error checking
         if os.path.isdir(database_path):
@@ -120,6 +142,7 @@ class SampleDatabase(object):
 
         self._database_path = database_path
         self._sample_dir_path = sample_dir_path
+        self._sample_generator_config = sample_generator_config
         if os.path.exists(self._database_path): # If file exists...
             print("\tFound existing datapase pickle, loading from:", self._database_path, end=" ")
             # ...initialize the database from the file handle (hopefully points to a pickled dict...)
@@ -150,8 +173,12 @@ class SampleDatabase(object):
         # This function actually fills the sample with data.
         # Its implementation depends on which map matching pipeline is optimized.
         INTERFACE_MODULE.create_evaluation_function_sample(results_path, sample)
-        # Calculate the path where the new sample's pickle file should be places
-        pickle_path = os.path.join(self._sample_dir_path, os.path.basename(results_path) + ".pkl")
+        # Calculate the path where the new sample's pickle file should be placed
+        pickle_basename = os.path.basename(results_path)
+        if pickle_basename == "results": # In some cases the results are placed in a dir called 'results'
+            # If that's the case, we'll use the name of the directory above, since 'results' is a bad name & probably not unique
+            pickle_basename = os.path.basename(os.path.dirname(results_path))
+        pickle_path = os.path.join(self._sample_dir_path, pickle_basename + ".pkl")
         # Safety check, don't just overwrite other pickles!
         if not override_existing and os.path.exists(pickle_path):
             raise ValueError("A pickle file already exists at the calculated location:", pickle_path)
@@ -218,11 +245,19 @@ class SampleDatabase(object):
     def __getitem__(self, complete_rosparams):
         """
         Returns a evaluation_function Sample object from the database.
+        If the requested sample doesn't exist, it'll get generated.
+        This causes the function call to block until it's done.
 
         :param complete_rosparams: The complete rosparams dictionary (not just the ones getting optimized).
         """
 
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
+        if not params_hashed in self._db_dict.keys():
+            # Generate a new sample and store it in the database
+            print("\tGenerating new sample!")
+            data_path = INTERFACE_MODULE.generate_sample(complete_rosparams, self._sample_generator_config)
+            print("\tSample generation finished, adding it to database")
+            self.create_sample_from_map_matcher_results(data_path)
         # Get the sample's db entry
         sample_location = self._db_dict[params_hashed]['pickle_path']
         # load the Sample from disk
@@ -322,8 +357,11 @@ if __name__ == '__main__': # don't execute when module is imported
             sys.exit()
 
         print("--> Mode: Experiment <--")
+        experiment_coordinator.initialize_optimizer()
         experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
         experiment_coordinator.save_gp_plot("01_after_max.svg")
+        experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
+        experiment_coordinator.save_gp_plot("02_after_max.svg")
 
     # Execute cmdline interface
     command_line_interface()
