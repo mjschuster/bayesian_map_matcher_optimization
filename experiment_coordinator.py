@@ -106,6 +106,7 @@ class ExperimentCoordinator(object):
         plt.ylim(0, 1.2)
         plt.legend(loc='upper left')
         plt.savefig(os.path.join(self._params['plots_directory'], plot_name))
+        plt.clf()
 
     def _resolve_relative_path(self, path):
         """
@@ -357,11 +358,12 @@ if __name__ == '__main__': # don't execute when module is imported
             sys.exit()
 
         print("--> Mode: Experiment <--")
+        iteration = 0
         experiment_coordinator.initialize_optimizer()
-        experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
-        experiment_coordinator.save_gp_plot("01_after_max.svg")
-        experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
-        experiment_coordinator.save_gp_plot("02_after_max.svg")
+        while True:
+            experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
+            experiment_coordinator.save_gp_plot(str(iteration).zfill(5) + "_iteration.svg")
+            iteration += 1
 
     # Execute cmdline interface
     command_line_interface()
