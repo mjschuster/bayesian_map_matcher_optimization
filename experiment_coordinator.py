@@ -32,8 +32,6 @@ class ExperimentCoordinator(object):
         """
         self._params = params_dict
         self._relpath_root = relpath_root
-        # Set the python hash seed env variable to a fixed value, so hashing the rosparam dicts delivers the same results for the same dict on different python interpreter instances.
-        os.environ['PYTHONHASHSEED'] = '42'
 
         # Resolve relative paths
         database_path = self._resolve_relative_path(self._params['database_path'])
@@ -252,15 +250,17 @@ class SampleDatabase(object):
         """
 
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
+        # Check if we need to generate the sample first
         if not params_hashed in self._db_dict.keys():
             # Generate a new sample and store it in the database
-            print("\tGenerating new sample!")
+            print("\tNo sample with hash ", params_hashed, " in databse, generating new sample:", sep="'")
             data_path = INTERFACE_MODULE.generate_sample(complete_rosparams, self._sample_generator_config)
-            print("\tSample generation finished, adding it to database")
+            print("\tSample generation finished, adding it to database.")
             self.create_sample_from_map_matcher_results(data_path)
         # Get the sample's db entry
         sample_location = self._db_dict[params_hashed]['pickle_path']
         # load the Sample from disk
+        print("\tRetrieved sample ", params_hashed, " from db, loading its representation from ", sample_location, sep="'")
         extracted_sample = self._unpickle_sample(sample_location)
         # Do a sanity check of the parameters, just in case of a hash collision
         if not complete_rosparams == extracted_sample.parameters:
