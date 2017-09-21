@@ -99,9 +99,9 @@ def generate_sample(rosparams, sample_generator_config):
     with open(rosparams_path, 'w+') as rosparams_file:
         yaml.dump(rosparams, rosparams_file)
 
-    max_threads = str(sample_generator_config['max_parallel_jobs'])
-    evaluation_command = [sample_generator_config['evaluator_executable'], yaml_path,
-                          "-j " + max_threads, "--machine-mode"]
+    evaluation_command = [sample_generator_config['evaluator_executable'], yaml_path]
+    for arg_string in sample_generator_config['extra_arguments']:
+        evaluation_command.append(arg_string)
     print("\t\tStarting evaluation process in directory", env_dir)
     # Run the evaluation and print its output
     for output in _run_evaluation(evaluation_command):

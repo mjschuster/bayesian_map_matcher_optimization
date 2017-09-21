@@ -66,7 +66,7 @@ class EvaluationFunction(object):
             if not p_name in [opt_param['rosparam_name'] for opt_param in self._optimization_definitions.values()]:
                 raise ValueError(str(p_name) + " shouldn't get optimized, but was in given dict of optimized parameters.")
 
-        print("\tEvaluating sample at", optimized_rosparams.items())
+        print("\tEvaluating function at", optimized_rosparams.items())
         # Create the full set of parameters by updating the default parameters with the optimized parameters.
         complete_rosparams = self._default_rosparams.copy()
         complete_rosparams.update(optimized_rosparams)
