@@ -1,3 +1,4 @@
+import datetime
 import sys
 import rosparam
 import os
@@ -46,6 +47,9 @@ def create_evaluation_function_sample(toplevel_directory, sample):
     :param sample: Sample object which should be filled with data
     """
     sample.origin = toplevel_directory
+    sample.translation_errors = []
+    sample.rotation_errors = []
+    sample.time = datetime.timedelta(0)
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):
         for file_name in files:
             if file_name == "statistics.pkl":
@@ -56,6 +60,7 @@ def create_evaluation_function_sample(toplevel_directory, sample):
                 eval_result_data = pickle.load(open(pickle_path, 'rb'), encoding='latin1')
                 sample.translation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['translation'].values())
                 sample.rotation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['rotation'].values())
+                sample.time += datetime.timedelta(seconds=float(eval_result_data['timings']['MapMatcherNode::runBatchMode total']['total']))
     
     # Check if there any statistics.pkl were found!
     if len(sample.translation_errors) == 0:

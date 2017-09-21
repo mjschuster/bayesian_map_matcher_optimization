@@ -88,7 +88,7 @@ class EvaluationFunction(object):
             raise ValueError("Given sample object isn't a Sample.", sample)
 
         if self._used_metric == 'mean_translation_error':
-            value = sum(sample.translation_errors) / len(sample.translation_errors)
+            value = sum(sample.translation_errors) / sample.nr_matches
 
         print("\tSample's result with metric '" + self._used_metric + "': ", value)
         return value
@@ -104,6 +104,7 @@ class Sample(object):
         * rotation_errors: A list of rotation errors in degree per match
         *---> Translation error n and rotation error n are both expected to be the result of match n.
         * parameters: A dict of all rosparams used for the map matcher run
+        * time: A datetime.timedelta object, expressing the time-cost of this Sample.
         * origin: A string which describes where that sample was generated. Probably should be a path to the map matcher results directory.
     """
 
@@ -111,8 +112,18 @@ class Sample(object):
         """
         Creates a function sample object with empty data contents.
         Fill with available data by accessing its propteries.
+        All data fields are initialized with None here, so the code will crash if you use
+        metrics on samples which don't have the data they need. (instead of generating wrong results)
         """
-        self.translation_errors = []
-        self.rotation_errors = []
-        self.parameters = {}
+        self.translation_errors = None
+        self.rotation_errors = None
+        self.parameters = None
+        self.time = None
         self.origin = None
+
+    @property
+    def nr_matches(self):
+        """
+        The number of matches the map matcher made with this Sample's parameters.
+        """
+        return len(self.translation_errors)
