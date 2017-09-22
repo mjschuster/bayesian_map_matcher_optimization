@@ -71,10 +71,10 @@ class ExperimentCoordinator(object):
                   "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
         # Create the optimizer object
         self.optimizer = BayesianOptimization(self.eval_function.evaluate, optimized_parameters)
-        # Get the initialization samples from the EvaluationFunction
-        print("\tInitializing optimizer with", self._params['optimizer_initialization'])
 
     def initialize_optimizer(self):
+        # Get the initialization samples from the EvaluationFunction
+        print("\tInitializing optimizer with", self._params['optimizer_initialization'])
         # init_dict will store the initialization data in the format the optimizer likes:
         # A list for each parameter with their values plus a 'target' list for the respective result value
         init_dict = {p_name: [] for p_name in self._params['optimizer_initialization'][0]}
@@ -261,7 +261,7 @@ class SampleDatabase(object):
         # Get the sample's db entry
         sample_location = self._db_dict[params_hashed]['pickle_path']
         # load the Sample from disk
-        print("\tRetrieved sample ", params_hashed, " from db, loading its representation from ", sample_location, sep="'")
+        print("\tRetrieved sample ", params_hashed, " from db, loading its representation from ", sample_location, ".", sep="'")
         extracted_sample = self._unpickle_sample(sample_location)
         # Do a sanity check of the parameters, just in case of a hash collision
         if not complete_rosparams == extracted_sample.parameters:

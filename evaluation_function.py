@@ -62,11 +62,15 @@ class EvaluationFunction(object):
             if p_value < p_dict['min_bound']:
                 raise ValueError(p_dict['rosparam_name'] + " value (" + str(p_value) + ") is under min bound (" +\
                                  str(p_dict['min_bound']) + ").")
-        for p_name in optimized_rosparams.keys(): # Check against parameters which shouldn't get optimized
+        # Check if all values' types are like in the default dict and whether value that shouldn't got optimized 
+        for p_name, p_value in optimized_rosparams.items():
             if not p_name in [opt_param['rosparam_name'] for opt_param in self._optimization_definitions.values()]:
                 raise ValueError(str(p_name) + " shouldn't get optimized, but was in given dict of optimized parameters.")
+            if not type(p_value) == type(self._default_rosparams[p_name]):
+                raise ValueError(str(p_name) + " changed its type to " + str(type(p_value)) + " during optimization." +\
+                                 " Type in default dict is " + str(type(self._default_rosparams[p_name])) + ".")
 
-        print("\tEvaluating function at", optimized_rosparams.items())
+        print("Evaluating function at", optimized_rosparams.items())
         # Create the full set of parameters by updating the default parameters with the optimized parameters.
         complete_rosparams = self._default_rosparams.copy()
         complete_rosparams.update(optimized_rosparams)
@@ -90,7 +94,7 @@ class EvaluationFunction(object):
         if self._used_metric == 'mean_translation_error':
             value = sum(sample.translation_errors) / sample.nr_matches
 
-        print("\tSample's result with metric '" + self._used_metric + "': ", value)
+        print("Sample's result with metric '" + self._used_metric + "': ", value)
         return value
 
 class Sample(object):
