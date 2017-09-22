@@ -74,18 +74,15 @@ class ExperimentCoordinator(object):
 
     def initialize_optimizer(self):
         # Get the initialization samples from the EvaluationFunction
-        print("\tInitializing optimizer with", self._params['optimizer_initialization'])
+        print("\tInitializing optimizer at", self._params['optimizer_initialization'])
         # init_dict will store the initialization data in the format the optimizer likes:
         # A list for each parameter with their values plus a 'target' list for the respective result value
         init_dict = {p_name: [] for p_name in self._params['optimizer_initialization'][0]}
-        init_dict['targets'] = []
         # Fill init_dict:
         for optimized_rosparams in self._params['optimizer_initialization']:
-            t = self.eval_function.evaluate(**optimized_rosparams)
-            init_dict['targets'].append(t)
             for p_name, p_value in optimized_rosparams.items():
                 init_dict[p_name].append(p_value)
-        self.optimizer.initialize(init_dict)
+        self.optimizer.explore(init_dict)
 
     def save_gp_plot(self, plot_name):
         """
