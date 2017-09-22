@@ -98,10 +98,10 @@ def generate_sample(rosparams, sample_generator_config):
     # Create *the* map matcher evaluation script config.
     # sample_generator_config may contain some unnecessary fields, but that doesn't hurt.
     mm_yaml_config = {'MapMatcherJobs': {'gpr_auto_entry': sample_generator_config}}
-    with open(yaml_path, 'w+') as yaml_file:
+    with open(yaml_path, 'w') as yaml_file:
         # Store the yaml file on disk. The evaluator will load it again.
         yaml.dump(mm_yaml_config, yaml_file)
-    with open(rosparams_path, 'w+') as rosparams_file:
+    with open(rosparams_path, 'w') as rosparams_file:
         yaml.dump(rosparams, rosparams_file)
 
     evaluation_command = [sample_generator_config['evaluator_executable'], yaml_path]
