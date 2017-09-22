@@ -15,7 +15,7 @@ class EvaluationFunction(object):
     This should reduce the time subsequent experiments will require, after a bunch of samples have already been generated.
     """
 
-    METRICS = ['test', 'mean_translation_error']
+    METRICS = ['test', 'mean_error']
     """
     Available metrics:
         * test: Metric for testing, will circumvent the sample generation and just model f(x)=50x*sin(50x).
@@ -59,7 +59,10 @@ class EvaluationFunction(object):
         :param optimized_rosparams: A keyworded argument list.
         """
 
-        # Error handling - Check if given optimized_rosparams satisfy the optimization definitions
+        print("Evaluating function at", optimized_rosparams.items())
+
+        # Error handling
+        # Iterate over the optimization definitions and check if the current request doesn't violate them
         for p_name, p_dict in self._optimization_definitions.items():
             if not p_dict['rosparam_name'] in optimized_rosparams:
                 raise ValueError(p_dict['rosparam_name'] + " should get optimized, but wasn't in given dict of optimized parameters.", optimized_rosparams)
@@ -70,19 +73,26 @@ class EvaluationFunction(object):
             if p_value < p_dict['min_bound']:
                 raise ValueError(p_dict['rosparam_name'] + " value (" + str(p_value) + ") is under min bound (" +\
                                  str(p_dict['min_bound']) + ").")
-        # Check if all values' types are like in the default dict and whether value that shouldn't got optimized 
+        # Iterate over the current request...
         for p_name, p_value in optimized_rosparams.items():
+            # ...check if there are parameters in there, that shouldn't be optimized.
             if not p_name in [opt_param['rosparam_name'] for opt_param in self._optimization_definitions.values()]:
                 raise ValueError(str(p_name) + " shouldn't get optimized, but was in given dict of optimized parameters.")
-            if not type(p_value) == type(self._default_rosparams[p_name]):
-                raise ValueError(str(p_name) + " changed its type to " + str(type(p_value)) + " during optimization." +\
-                                 " Type in default dict is " + str(type(self._default_rosparams[p_name])) + ".")
+            # ...also cast their type to the type in the default rosparams dict. Otherwise, we may serialize
+            # some high-precision numpy float class instead of having a built-in float value on the yaml, that
+            # rosparams can actually read. Sadl, we'll lose some precision through that.
+            if type(self._default_rosparams[p_name]) != type(p_value):
+                print("\tWarning, casting parameter type", type(p_value), "of", p_name, "to", type(self._default_rosparams[p_name]))
+                optimized_rosparams[p_name] = type(self._default_rosparams[p_name])(p_value)
+            #if not type(p_value) == type(self._default_rosparams[p_name]):
+            #    raise ValueError(str(p_name) + " changed its type to " + str(type(p_value)) + " during optimization." +\
+            #                     " Type in default dict is " + str(type(self._default_rosparams[p_name])) + ".")
 
-        print("Evaluating function at", optimized_rosparams.items())
         if self._used_metric == 'test':
             # test metric expects only one optimized parameter, so just get the first value in the dict
             x = [p_value for p_value in optimized_rosparams.values()][0]
             return 50*x * np.sin(50*x)
+
         # Create the full set of parameters by updating the default parameters with the optimized parameters.
         complete_rosparams = self._default_rosparams.copy()
         complete_rosparams.update(optimized_rosparams)
@@ -103,11 +113,15 @@ class EvaluationFunction(object):
         if not isinstance(sample, Sample):
             raise ValueError("Given sample object isn't a Sample.", sample)
 
-        if self._used_metric == 'mean_translation_error':
-            value = sum(sample.translation_errors) / sample.nr_matches
-
-        print("Sample's result with metric '" + self._used_metric + "': ", value)
-        return value
+        if self._used_metric == 'mean_error':
+            translation_error = sum(sample.translation_errors) / sample.nr_matches
+            rotation_error = sum(sample.rotation_errors) / sample.nr_matches
+            # Adjust value range with some values (ugly, TODO)
+            translation_error = (translation_error - 0.2) / 0.8
+            rotation_error = (rotation_error - 2) / 6
+            value = 1 / (translation_error + rotation_error) # invert the measure so the max is useful (ugly, TODO)
+            print("Sample's result with metric '" + self._used_metric + "': ", value)
+            return value
 
 class Sample(object):
     """
