@@ -2,6 +2,8 @@
 Contains the code for modelling the EvaluationFunction via discrete samples.
 """
 
+import numpy as np
+
 class EvaluationFunction(object):
     """
     Models the evaluation function that is optimized by the gaussian process.
@@ -13,7 +15,13 @@ class EvaluationFunction(object):
     This should reduce the time subsequent experiments will require, after a bunch of samples have already been generated.
     """
 
-    METRICS = ['mean_translation_error']
+    METRICS = ['test', 'mean_translation_error']
+    """
+    Available metrics:
+        * test: Metric for testing, will circumvent the sample generation and just model f(x)=50x*sin(50x).
+                Will only work as long as just one parameter is optimized.
+        * mean_translation_error: Will return mean translation error of a Sample's matches.
+    """
 
     def __init__(self, sample_db, default_rosparams, optimization_definitions, used_metric):
         """
@@ -71,6 +79,10 @@ class EvaluationFunction(object):
                                  " Type in default dict is " + str(type(self._default_rosparams[p_name])) + ".")
 
         print("Evaluating function at", optimized_rosparams.items())
+        if self._used_metric == 'test':
+            # test metric expects only one optimized parameter, so just get the first value in the dict
+            x = [p_value for p_value in optimized_rosparams.values()][0]
+            return 50*x * np.sin(50*x)
         # Create the full set of parameters by updating the default parameters with the optimized parameters.
         complete_rosparams = self._default_rosparams.copy()
         complete_rosparams.update(optimized_rosparams)
