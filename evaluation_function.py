@@ -39,7 +39,7 @@ class EvaluationFunction(object):
         * mean_translation_error: Will return mean translation error of a Sample's matches.
     """
 
-    def __init__(self, sample_db, default_rosparams, optimization_definitions, used_metric):
+    def __init__(self, sample_db, default_rosparams, optimization_definitions, used_metric, rounding_decimal_places=0):
         """
         Creates an EvaluationFunction object.
         
@@ -50,6 +50,8 @@ class EvaluationFunction(object):
                                          Expects a dict that contains one or multiple entires, each containing rosparam_name, min_bound and max_bound.
         :param used_metric: A string to tell which metric should be used. See EvaluationFunction.METRICS for all implemented metrics.
                             Some metrics may terminate the experiment, if your Sample instances don't contain the necessary data.
+        :param rounding_decimal_places: The number of decimal places to which parameters of type float should be rounded to.
+                                        If zero, no rounding will take place.
         """
 
         # error checking
@@ -60,6 +62,7 @@ class EvaluationFunction(object):
         self._default_rosparams = default_rosparams
         self._optimization_definitions = optimization_definitions
         self._used_metric = used_metric
+        self._rounding_decimal_places = rounding_decimal_places
 
     def evaluate(self, **optimized_rosparams):
         """
@@ -68,6 +71,7 @@ class EvaluationFunction(object):
 
         Will convert the optimized_rosparams (from the Optimizer-world) to the complete_rosparams which define 
         a Sample in the map matching pipeline.
+        This may also involve casting types of optimized_rosparams to the type the parameter has in the default_rosparams.
 
         This function may return quickly, if the sample already exists in the sample database.
         Otherwise, the call will block until the map matching pipeline has finished generating the requested sample.
@@ -100,9 +104,10 @@ class EvaluationFunction(object):
             if type(self._default_rosparams[p_name]) != type(p_value):
                 print("\tWarning, casting parameter type", type(p_value), "of", p_name, "to", type(self._default_rosparams[p_name]))
                 optimized_rosparams[p_name] = type(self._default_rosparams[p_name])(p_value)
-            #if not type(p_value) == type(self._default_rosparams[p_name]):
-            #    raise ValueError(str(p_name) + " changed its type to " + str(type(p_value)) + " during optimization." +\
-            #                     " Type in default dict is " + str(type(self._default_rosparams[p_name])) + ".")
+            if self._rounding_decimal_places and isinstance(p_value, float):
+                rounded_p_value = round(optimized_rosparams[p_name], self._rounding_decimal_places)
+                print("\tWarning, rounding float value", p_name, ":", p_value, "->", rounded_p_value)
+                optimized_rosparams[p_name] = rounded_p_value
 
         if self._used_metric == 'test':
             # test metric expects only one optimized parameter, so just get the first value in the dict

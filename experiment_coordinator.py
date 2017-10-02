@@ -53,7 +53,8 @@ class ExperimentCoordinator(object):
         default_rosparams = rosparam.load_file(rosparams_path)[0][0]
         self.eval_function = evaluation_function.EvaluationFunction(self.sample_db, default_rosparams,
                                                                     optimization_definitions,
-                                                                    self._params['evaluation_function_metric'])
+                                                                    self._params['evaluation_function_metric'],
+                                                                    self._params['rounding_decimal_places'])
         ###########
         # Create an BayesianOptimization object, that contains the GPR logic.
         # Will supply us with new param-samples and will try to model the map matcher metric function.
