@@ -10,6 +10,7 @@ import os
 import rosparam
 import yaml
 import sys
+import pprint
 
 from bayes_opt import BayesianOptimization
 
@@ -142,6 +143,13 @@ if __name__ == '__main__': # don't execute when module is imported
         parser = argparse.ArgumentParser(description=description_string)
         parser.add_argument('experiment_yaml',
                             help="Path to the yaml file which defines all parameters of one experiment run.")
+        parser.add_argument('--list-all-samples', '-la',
+                            dest='list_all_samples', action='store_true',
+                            help=("Lists all samples available in the database and exits."
+                                  "May look really messy and could jam your console with lots of output."))
+        parser.add_argument('--list-samples', '-ls',
+                            dest='list_samples', action='store_true',
+                            help="Lists those samples in the database, which are relevant for this experiment and exits.")
         parser.add_argument('--remove-samples', '-rm',
                             dest='remove_samples', nargs='+', help=rm_arg_help)
         parser.add_argument('--add-samples', '-a',
@@ -155,6 +163,17 @@ if __name__ == '__main__': # don't execute when module is imported
         experiment_coordinator = ExperimentCoordinator(experiment_parameters_dict, relpath_root)
 
         # Check cmdline arguments for special modes, default mode (Experiment mode) is below
+        if args.list_all_samples:
+            print("--> Mode: List All Samples <--")
+            print("Number of samples", len(experiment_coordinator.sample_db._db_dict))
+            pp = pprint.PrettyPrinter()
+            for sample_hash, sample in experiment_coordinator.sample_db._db_dict.items():
+                print("Sample with hash ", sample_hash, ", stored at ", sample['pickle_path'], " with paramters:", sep="'")
+                pp.pprint(sample['params'])
+            sys.exit()
+        if args.list_samples:
+            print("--> Mode: List Samples <--")
+            sys.exit()
         if args.remove_samples:
             print("--> Mode: Remove Samples <--")
             for sample_id in args.remove_samples:
