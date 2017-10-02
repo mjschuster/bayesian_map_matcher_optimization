@@ -167,9 +167,9 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Mode: List All Samples <--")
             print("Number of samples", len(experiment_coordinator.sample_db._db_dict))
             pp = pprint.PrettyPrinter()
-            for sample_hash, sample in experiment_coordinator.sample_db._db_dict.items():
-                print("Sample with hash ", sample_hash, ", stored at ", sample['pickle_path'], " with paramters:", sep="'")
-                pp.pprint(sample['params'])
+            for sample_hash, pickle_path, complete_rosparams in experiment_coordinator.sample_db:
+                print("Sample with hash ", sample_hash, ", stored at ", pickle_path, " with paramters:", sep="'")
+                pp.pprint(complete_rosparams)
             sys.exit()
         if args.list_samples:
             print("--> Mode: List Samples <--")
