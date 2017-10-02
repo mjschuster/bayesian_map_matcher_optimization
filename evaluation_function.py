@@ -117,6 +117,42 @@ class EvaluationFunction(object):
         # Calculate the metric
         return self.metric(sample)
 
+    def __iter__(self):
+        """
+        Iterator for getting all available samples from the database, which define this EvaluationFunction.
+        
+        Returns samples as a tuple (X, Y), with X: A dict of optimized_rosparams and their respective value.
+                                         , and with Y: A dict with the current metric's value at 'metric' and
+                                                       the Sample object itself at 'sample'.
+        """
+        for sample in self._sample_db:
+            if self._defined_by(sample.parameters):
+                X = sample.parameters
+                Y = {'metric': self.metric(sample),
+                     'sample': sample}
+                yield (X, Y)
+
+    def _defined_by(self, complete_rosparams):
+        """
+        Returns whether the given complete_rosparams is valid for defining this EvaluationFunction.
+        That's the case if all non-optimized parameters of complete_rosparams are equal to this EvaluationFunction's default_rosparams.
+        """
+        nr_of_optimized_params_found = 0
+        for param, value in complete_rosparams.items():
+            # Check if the current param is optimized
+            if param in [d['rosparam_name'] for d in self._optimization_definitions.values()]:
+                nr_of_optimized_params_found += 1
+                continue # Move on to the next parameter
+            else: # If it's not optimized
+                # check whether it has the right value (equal to the one set in default_rosparams)
+                if not value == self._default_rosparams[param]:
+                    return False # return False immediately
+
+        if not nr_of_optimized_params_found == len(self._optimization_definitions):
+            raise LookupError("There are parameters in the optimization_definitions, which aren't in the sample's complete rosparams.", str(self._sample_db[complete_rosparams]))
+
+        return True
+
     def metric(self, sample):
         """
         Returns the active metric's value for a given Sample object.
@@ -136,7 +172,7 @@ class EvaluationFunction(object):
             translation_error = (translation_error - 0.2) / 0.8
             rotation_error = (rotation_error - 2) / 6
             value = 1 / (translation_error + rotation_error) # invert the measure so the max is useful (ugly, TODO)
-            print("Sample's result with metric '" + self._used_metric + "': ", value)
+            #print("Sample's result with metric '" + self._used_metric + "': ", value)
             return value
 
 class Sample(object):
@@ -173,6 +209,12 @@ class Sample(object):
         The number of matches the map matcher made with this Sample's parameters.
         """
         return len(self.translation_errors)
+
+    def __str__(self):
+        """
+        Small, readable representation of this Sample
+        """
+        return "Sample generated from " + self.origin + " (database-hash: " + str(SampleDatabase.rosparam_hash(self.parameters)) + ")"
 
 class SampleDatabase(object):
     """
@@ -299,6 +341,13 @@ class SampleDatabase(object):
         """
 
         return SampleDatabase.rosparam_hash(complete_rosparams) in self._db_dict.keys()
+
+    def __iter__(self):
+        """
+        Iterator for getting all sample objects contained in the database.
+        """
+        for sample_hash, sample in self._db_dict.items():
+            yield self._unpickle_sample(sample['pickle_path'])
 
     def __getitem__(self, complete_rosparams):
         """

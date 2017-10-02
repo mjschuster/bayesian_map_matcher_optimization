@@ -10,7 +10,6 @@ import os
 import rosparam
 import yaml
 import sys
-import pprint
 
 from bayes_opt import BayesianOptimization
 
@@ -61,13 +60,13 @@ class ExperimentCoordinator(object):
         ###########
         # Put the information about which parameters to optimize in a form bayes_opt likes:
         print("Setting up Optimizer...")
-        optimized_parameters = dict()
+        optimized_rosparams = dict()
         for p_name, p_defs in self._params['optimization_definitions'].items():
-            optimized_parameters[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
+            optimized_rosparams[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
             print("\tOptimizing parameter '", p_name, "' as rosparam '", p_defs['rosparam_name'],\
                   "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
         # Create the optimizer object
-        self.optimizer = BayesianOptimization(self.eval_function.evaluate, optimized_parameters)
+        self.optimizer = BayesianOptimization(self.eval_function.evaluate, optimized_rosparams)
 
     def initialize_optimizer(self):
         # Get the initialization samples from the EvaluationFunction
@@ -145,8 +144,7 @@ if __name__ == '__main__': # don't execute when module is imported
                             help="Path to the yaml file which defines all parameters of one experiment run.")
         parser.add_argument('--list-all-samples', '-la',
                             dest='list_all_samples', action='store_true',
-                            help=("Lists all samples available in the database and exits."
-                                  "May look really messy and could jam your console with lots of output."))
+                            help="Lists all samples available in the database and exits.")
         parser.add_argument('--list-samples', '-ls',
                             dest='list_samples', action='store_true',
                             help="Lists those samples in the database, which are relevant for this experiment and exits.")
@@ -165,14 +163,21 @@ if __name__ == '__main__': # don't execute when module is imported
         # Check cmdline arguments for special modes, default mode (Experiment mode) is below
         if args.list_all_samples:
             print("--> Mode: List All Samples <--")
-            print("Number of samples", len(experiment_coordinator.sample_db._db_dict))
-            pp = pprint.PrettyPrinter()
-            for sample_hash, pickle_path, complete_rosparams in experiment_coordinator.sample_db:
-                print("Sample with hash ", sample_hash, ", stored at ", pickle_path, " with paramters:", sep="'")
-                pp.pprint(complete_rosparams)
+            for sample in experiment_coordinator.sample_db:
+                print(sample)
+            print("Total number of samples", len(experiment_coordinator.sample_db._db_dict))
             sys.exit()
         if args.list_samples:
             print("--> Mode: List Samples <--")
+            count = 0
+            for X, Y in experiment_coordinator.eval_function:
+                count += 1
+                print(Y['sample'])
+                print("\tOptimized Parameters:")
+                for name, defs in experiment_parameters_dict['optimization_definitions'].items():
+                    print("\t\t", defs['rosparam_name'], "=", X[defs['rosparam_name']], sep="")
+                print("\tMetric-value:", Y['metric'])
+            print("Number of usable samples:", count)
             sys.exit()
         if args.remove_samples:
             print("--> Mode: Remove Samples <--")
