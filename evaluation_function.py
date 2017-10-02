@@ -1,17 +1,33 @@
 """
 Contains the code for modelling the EvaluationFunction via discrete samples.
+
+A Sample is defined by its full set of rosparams ("complete_rosparams"), since they're necessary to run
+the map matcher.
+A Sample contains resulting data from the map matcher evaluation with its complete_rosparams.
+
+The Samples are managed by the SampleDatabase, which uses a hashing to quickly find the Sample for a given complete_rosparams.
+If it doesn't exist, another Sample will be generated using the INTERFACE_MODULE. (this is where you can define some method for generating Sample data for your specific map matcher implementation)
+
+The EvaluationFunction is the toplevel class for this repo. In it, "complete_rosparams" and "optimized_rosparams" are differentiated.
+It acts as the interface for the optimizer, which only knows about the "optimized_rosparams" (subset of "complete_rosparams").
 """
 
 import numpy as np
+import os
+import pickle
+
+# import the DLR specific code to gather data
+import dlr_map_matcher_interface_tools
+INTERFACE_MODULE = dlr_map_matcher_interface_tools
 
 class EvaluationFunction(object):
     """
     Models the evaluation function that is optimized by the gaussian process.
 
     In our use-case, feature-based map matcher evaluation, the evaluation function can't be defined analytically.
-    Instead, this class models it as a set of sample points for which the map matcher pipeline was evaluated.
+    Instead, this class models it as a set of Sample points for which the map matcher pipeline was evaluated.
 
-    The class uses the _sample_db member to store known samples.
+    This class uses the SampleDatabase class to manage the Samples over which it is defined.
     This should reduce the time subsequent experiments will require, after a bunch of samples have already been generated.
     """
 
@@ -106,7 +122,7 @@ class EvaluationFunction(object):
         Returns the active metric's value for a given Sample object.
         Its concrete behaviour depends on the used_metric parameter given to the init method.
 
-        :param sample: An evaluation_function Sample.
+        :param sample: The Sample for which the metric should be calculated.
         """
 
         # Error handling
@@ -157,3 +173,191 @@ class Sample(object):
         The number of matches the map matcher made with this Sample's parameters.
         """
         return len(self.translation_errors)
+
+class SampleDatabase(object):
+    """
+    This object manages Samples in a dictionary (the "database").
+    It knows nothing of the currently optimized parameters or their bounds, this functionality is covered by the EvaluationFunction.
+    The sample object themselves aren't kept in memory, but are stored on disk as pickle files.
+    They'll get loaded into when requested via __getitem__ like this: sample_db_obj[rosparams_of_requested_sample].
+
+    The databse-dict is indexed by the hashed parameters (hashed using the rosparam_hash function) and contains:
+        * pickle_path: The path to a pickled Sample object.
+        * params: The complete rosparams dict used to generate this Sample. Its hash should be equal to the item's key.
+    """
+
+    def __init__(self, database_path, sample_dir_path, sample_generator_config):
+        """
+        Initializes a SampleDatabase object.
+
+        :param database_path: Path to the database file; The pickled database dict.
+        :param sample_dir_path: Path to the directory where samples created by this SampleDatabase should be stored.
+        :param sample_generator_config: Config for the sample generation in the INTERFACE_MODULE.
+        """
+        # Error checking
+        if os.path.isdir(database_path):
+            raise ValueError("Given database path is a directory!", database_path)
+
+        self._database_path = database_path
+        self._sample_dir_path = sample_dir_path
+        self._sample_generator_config = sample_generator_config
+        if os.path.exists(self._database_path): # If file exists...
+            print("\tFound existing datapase pickle, loading from:", self._database_path, end=" ")
+            # ...initialize the database from the file handle (hopefully points to a pickled dict...)
+            with open(database_path, 'rb') as db_handle:
+                self._db_dict = pickle.load(db_handle)
+            print("- Loaded", len(self._db_dict), "samples.")
+        else:
+            print("\tDidn't find existing database pickle, initializing new database at", self._database_path, end=".\n")
+            self._db_dict = {} # ..otherwise initialize as an empty dict and save it
+            self._save()
+
+    def _save(self):
+        """
+        Pickles the current state of the database dict.
+        """
+        with open(self._database_path, 'wb') as db_handle:
+            pickle.dump(self._db_dict, db_handle)
+
+    def create_sample_from_map_matcher_results(self, results_path, override_existing=False):
+        """
+        Creates a new Sample object from a finished map matcher run and adds it to the database.
+
+        :param results_path: The path to the directory which contains the map matcher's results.
+        """
+
+        print("\tCreating new Sample from map matcher result at", results_path, end=".\n")
+        sample = Sample()
+        # This function actually fills the sample with data.
+        # Its implementation depends on which map matching pipeline is optimized.
+        INTERFACE_MODULE.create_evaluation_function_sample(results_path, sample)
+        # Calculate the path where the new sample's pickle file should be placed
+        pickle_basename = os.path.basename(results_path)
+        if pickle_basename == "results": # In some cases the results are placed in a dir called 'results'
+            # If that's the case, we'll use the name of the directory above, since 'results' is a bad name & probably not unique
+            pickle_basename = os.path.basename(os.path.dirname(results_path))
+        pickle_path = os.path.join(self._sample_dir_path, pickle_basename + ".pkl")
+        # Safety check, don't just overwrite other pickles!
+        if not override_existing and os.path.exists(pickle_path):
+            raise ValueError("A pickle file already exists at the calculated location:", pickle_path)
+        complete_rosparams = sample.parameters
+        params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
+        # Safety check, don't just overwrite a db entry
+        if not override_existing and params_hashed in self._db_dict.keys():
+            raise LookupError("Newly created sample's hash already exists in the database! Hash:", params_hashed,\
+                              "Existing sample's pickle path is:", self._db_dict[params_hashed]['pickle_path'])
+        print("\tPickling Sample object for later usage to:", pickle_path)
+        self._pickle_sample(sample, pickle_path)
+        # Add new Sample to db and save the db
+        print("\tRegistering sample to database at hash(params):", params_hashed)
+        self._db_dict[params_hashed] = {'pickle_path': pickle_path, 'params': complete_rosparams}
+        self._save()
+
+    def remove_sample(self, sample_identifier):
+        """
+        Removes a Sample's entry from the database and its pickled representation from disk.
+
+        :param sample_identifier: A string which identifies the sample.
+                                  Can either be a Sample's hash or
+                                  the path where its pickled representation is stored on disk.
+        """
+
+        if os.path.isfile(sample_identifier): # sample_identifier points to the pickle file
+            pickle_path = sample_identifier
+            # Get the sample's representation
+            sample = self._unpickle_sample(pickle_path)
+            # Try to find and remove the Sample's entry in the database
+            if not self.exists(sample.parameters):
+                print("\tWarning: Couldn't find db-entry for pickled Sample '" + pickle_path + "'.")
+            else:
+                print("\tRemoving Sample's db entry '" + str(self.rosparam_hash(sample.parameters)) + "'.")
+                del self._db_dict[SampleDatabase.rosparam_hash(sample.parameters)]
+            # Remove it from disk
+            print("\tRemoving Sample's pickle '" + pickle_path + "' from disk.")
+            os.remove(pickle_path)
+        else: # sample_identifier should be a hash in the db
+            sample_hash = int(sample_identifier) # throws ValueError, if the file doesn't exist...
+            if not sample_hash in self._db_dict:
+                raise LookupError("Couldn't find a sample with hash", sample_hash)
+            # Get sample from pickled representation
+            pickle_path = self._db_dict[sample_hash]['pickle_path']
+            if not os.path.isfile(pickle_path):
+                print("\tWarning: Couldn't find Sample's pickled representation at '" +\
+                      pickle_path + "'.")
+            else:
+                print("\tRemoving Sample's pickle '" + pickle_path + "' from disk.")
+                os.remove(pickle_path)
+            print("\tRemoving Sample's db entry '" + str(sample_hash) + "'.")
+            del self._db_dict[sample_hash]
+            
+        # Only save the db at the end, after we know everything worked
+        self._save()
+
+    def exists(self, complete_rosparams):
+        """
+        Returns whether a sample with the given rosparams already exists in the database.
+        """
+
+        return SampleDatabase.rosparam_hash(complete_rosparams) in self._db_dict.keys()
+
+    def __getitem__(self, complete_rosparams):
+        """
+        Returns a Sample object from the database.
+        If the requested sample doesn't exist, it'll get generated via the INTERFACE_MODULE.generate_sample() function.
+        This causes the function call to block until it's done. (possibly for hours)
+
+        :param complete_rosparams: The complete rosparams dictionary (not just the ones getting optimized).
+        """
+
+        params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
+        # Check if we need to generate the sample first
+        if not params_hashed in self._db_dict.keys():
+            # Generate a new sample and store it in the database
+            print("\tNo sample with hash ", params_hashed, " in databse, generating new sample:", sep="'")
+            data_path = INTERFACE_MODULE.generate_sample(complete_rosparams, self._sample_generator_config)
+            print("\tSample generation finished, adding it to database.")
+            self.create_sample_from_map_matcher_results(data_path)
+        # Get the sample's db entry
+        sample_location = self._db_dict[params_hashed]['pickle_path']
+        # load the Sample from disk
+        print("\tRetrieved sample ", params_hashed, " from db, loading its representation from ", sample_location, ".", sep="'")
+        extracted_sample = self._unpickle_sample(sample_location)
+        # Do a sanity check of the parameters, just in case of a hash collision
+        if not complete_rosparams == extracted_sample.parameters:
+            raise LookupError("Got a sample with hash " + params_hashed + ", but its parameters didn't match the requested parameters. (Hash function collision?)", complete_rosparams, extracted_sample.parameters)
+        return extracted_sample
+
+    def _pickle_sample(self, sample, pickle_path):
+        """
+        Helper method for saving samples to disk
+
+        :param sample: The Sample which should be pickled.
+        :param pickle_path: The path to where the Sample's pickled representation should be written to.
+        """
+        with open(pickle_path, 'wb') as sample_pickle_handle:
+            pickle.dump(sample, sample_pickle_handle)
+
+    def _unpickle_sample(self, pickle_path):
+        """
+        Helper method for loading samples from disk
+
+        :param pickle_path: Path to the Sample's pickled representation.
+        """
+        with open(pickle_path, 'rb') as sample_pickle_handle:
+            sample = pickle.load(sample_pickle_handle)
+            if not isinstance(sample, Sample):
+                raise TypeError("The object unpickled from", pickle_path, "isn't an Sample instance!")
+            return sample
+
+    @classmethod
+    def rosparam_hash(cls, params_dict):
+        """
+        Calculates and returns a hash from the given params_dict.
+        """
+        # Create a copy of the params dict and convert all lists to tuples. 
+        # This is done, because lists aren't hashable.
+        params_dict = params_dict.copy()
+        for key, value in params_dict.items():
+            if isinstance(value, list):
+                params_dict[key] = tuple(value)
+        return hash(frozenset(params_dict.items()))
