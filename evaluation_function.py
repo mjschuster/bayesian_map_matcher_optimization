@@ -237,7 +237,7 @@ class SampleDatabase(object):
     They'll get loaded into when requested via __getitem__ like this: sample_db_obj[rosparams_of_requested_sample].
 
     The databse-dict is indexed by the hashed parameters (hashed using the rosparam_hash function) and contains:
-        * pickle_path: The path to a pickled Sample object.
+        * pickle_name: The name of the pickled Sample object.
         * params: The complete rosparams dict used to generate this Sample. Its hash should be equal to the item's key.
     """
 
@@ -281,6 +281,7 @@ class SampleDatabase(object):
         :param results_path: The path to the directory which contains the map matcher's results.
         """
 
+        results_path = os.path.abspath(results_path)
         print("\tCreating new Sample from map matcher result at", results_path, end=".\n")
         sample = Sample()
         # This function actually fills the sample with data.
@@ -291,21 +292,17 @@ class SampleDatabase(object):
         if pickle_basename == "results": # In some cases the results are placed in a dir called 'results'
             # If that's the case, we'll use the name of the directory above, since 'results' is a bad name & probably not unique
             pickle_basename = os.path.basename(os.path.dirname(results_path))
-        pickle_path = os.path.join(self._sample_dir_path, pickle_basename + ".pkl")
-        # Safety check, don't just overwrite other pickles!
-        if not override_existing and os.path.exists(pickle_path):
-            raise ValueError("A pickle file already exists at the calculated location:", pickle_path)
+        pickle_name = pickle_basename + ".pkl"
+        self._pickle_sample(sample, pickle_name, override_existing)
         complete_rosparams = sample.parameters
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
         # Safety check, don't just overwrite a db entry
         if not override_existing and params_hashed in self._db_dict.keys():
             raise LookupError("Newly created sample's hash already exists in the database! Hash:", params_hashed,\
-                              "Existing sample's pickle path is:", self._db_dict[params_hashed]['pickle_path'])
-        print("\tPickling Sample object for later usage to:", pickle_path)
-        self._pickle_sample(sample, pickle_path)
+                              "Existing sample's pickle path is:", self._db_dict[params_hashed]['pickle_name'])
         # Add new Sample to db and save the db
         print("\tRegistering sample to database at hash(params):", params_hashed)
-        self._db_dict[params_hashed] = {'pickle_path': pickle_path, 'params': complete_rosparams}
+        self._db_dict[params_hashed] = {'pickle_name': pickle_name, 'params': complete_rosparams}
         self._save()
 
     def remove_sample(self, sample_identifier):
@@ -317,25 +314,26 @@ class SampleDatabase(object):
                                   the path where its pickled representation is stored on disk.
         """
 
-        if os.path.isfile(sample_identifier): # sample_identifier points to the pickle file
-            pickle_path = sample_identifier
+        if os.path.splitext(sample_identifier)[1] == '.pkl': # sample_identifier points to the pickle file
+            pickle_name = sample_identifier
             # Get the sample's representation
-            sample = self._unpickle_sample(pickle_path)
+            sample = self._unpickle_sample(pickle_name)
             # Try to find and remove the Sample's entry in the database
             if not self.exists(sample.parameters):
-                print("\tWarning: Couldn't find db-entry for pickled Sample '" + pickle_path + "'.")
+                print("\tWarning: Couldn't find db-entry for pickled Sample '" + pickle_name + "'.")
             else:
                 print("\tRemoving Sample's db entry '" + str(self.rosparam_hash(sample.parameters)) + "'.")
                 del self._db_dict[SampleDatabase.rosparam_hash(sample.parameters)]
             # Remove it from disk
-            print("\tRemoving Sample's pickle '" + pickle_path + "' from disk.")
-            os.remove(pickle_path)
+            print("\tRemoving Sample's pickle '" + pickle_name + "' from disk.")
+            os.remove(os.path.join(self._sample_dir_path, pickle_name))
         else: # sample_identifier should be a hash in the db
             sample_hash = int(sample_identifier) # throws ValueError, if the file doesn't exist...
             if not sample_hash in self._db_dict:
                 raise LookupError("Couldn't find a sample with hash", sample_hash)
             # Get sample from pickled representation
-            pickle_path = self._db_dict[sample_hash]['pickle_path']
+            pickle_name = self._db_dict[sample_hash]['pickle_name']
+            pickle_path = os.path.join(self._sample_dir_path, pickle_name)
             if not os.path.isfile(pickle_path):
                 print("\tWarning: Couldn't find Sample's pickled representation at '" +\
                       pickle_path + "'.")
@@ -360,7 +358,7 @@ class SampleDatabase(object):
         Iterator for getting all sample objects contained in the database.
         """
         for sample_hash, sample in self._db_dict.items():
-            yield self._unpickle_sample(sample['pickle_path'])
+            yield self._unpickle_sample(sample['pickle_name'])
 
     def __getitem__(self, complete_rosparams):
         """
@@ -380,31 +378,37 @@ class SampleDatabase(object):
             print("\tSample generation finished, adding it to database.")
             self.create_sample_from_map_matcher_results(data_path)
         # Get the sample's db entry
-        sample_location = self._db_dict[params_hashed]['pickle_path']
+        pickle_name = self._db_dict[params_hashed]['pickle_name']
         # load the Sample from disk
-        print("\tRetrieved sample ", params_hashed, " from db, loading its representation from ", sample_location, ".", sep="'")
-        extracted_sample = self._unpickle_sample(sample_location)
+        print("\tRetrieved sample ", params_hashed, " from db, loading its representation from ", pickle_name, ".", sep="'")
+        extracted_sample = self._unpickle_sample(pickle_name)
         # Do a sanity check of the parameters, just in case of a hash collision
         if not complete_rosparams == extracted_sample.parameters:
             raise LookupError("Got a sample with hash " + params_hashed + ", but its parameters didn't match the requested parameters. (Hash function collision?)", complete_rosparams, extracted_sample.parameters)
         return extracted_sample
 
-    def _pickle_sample(self, sample, pickle_path):
+    def _pickle_sample(self, sample, pickle_name, override_existing=False):
         """
-        Helper method for saving samples to disk
+        Helper method for saving samples to disk.
 
         :param sample: The Sample which should be pickled.
-        :param pickle_path: The path to where the Sample's pickled representation should be written to.
+        :param pickle_name: The name of the Sample's pickled representation.
         """
+        pickle_path = os.path.abspath(os.path.join(self._sample_dir_path, pickle_name))
+        # Safety check, don't just overwrite other pickles!
+        if not override_existing and os.path.exists(pickle_path):
+            raise ValueError("A pickle file already exists at the calculated location:", pickle_path)
+        print("\tPickling Sample object for later usage to:", pickle_path)
         with open(pickle_path, 'wb') as sample_pickle_handle:
             pickle.dump(sample, sample_pickle_handle)
 
-    def _unpickle_sample(self, pickle_path):
+    def _unpickle_sample(self, pickle_name):
         """
         Helper method for loading samples from disk
 
-        :param pickle_path: Path to the Sample's pickled representation.
+        :param pickle_name: Path to the Sample's pickled representation.
         """
+        pickle_path = os.path.abspath(os.path.join(self._sample_dir_path, pickle_name))
         with open(pickle_path, 'rb') as sample_pickle_handle:
             sample = pickle.load(sample_pickle_handle)
             if not isinstance(sample, Sample):
