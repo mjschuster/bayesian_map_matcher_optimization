@@ -86,22 +86,73 @@ class ExperimentCoordinator(object):
         Helper for saving plots of the GPR state to disk.
         """
 
-        renderspace_x = np.atleast_2d(np.linspace(0, 1, 1000)).T
-        y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
+        # Setup the figure and its axes
+        fig, metric_axis = plt.subplots()
+        # Create twin axis that share the x-axis of the main axis
+        nr_matches_axis = metric_axis.twinx()
+        rotation_err_axis = metric_axis.twinx()
+        translation_err_axis = metric_axis.twinx()
+        # Setup labels and colors
+        metric_axis.set_xlabel('$parameters$')
+        metric_axis.set_ylabel('$metric$')
+        metric_axis.yaxis.label.set_color('blue')
+        metric_axis.tick_params(axis='y', colors='blue')
 
-        plt.plot(renderspace_x, 50*renderspace_x * np.sin(50*renderspace_x), 'r:', label=u'$f(x) = 50x\, \sin(50x)$')
-        plt.plot(self.optimizer.X.flatten(), self.optimizer.Y, 'r.', markersize=10, label=u'Observations')
-        plt.plot(renderspace_x, y_pred, 'b-', label=u'Prediction')
-        plt.fill(np.concatenate([renderspace_x, renderspace_x[::-1]]),
+        nr_matches_axis.set_ylabel('$nr matches$')
+        nr_matches_axis.yaxis.label.set_color('green')
+        nr_matches_axis.tick_params(axis='y', colors='green')
+
+        rotation_err_axis.set_ylabel('$mean rotation error$')
+        rotation_err_axis.yaxis.label.set_color('red')
+        rotation_err_axis.tick_params(axis='y', colors='red')
+
+        translation_err_axis.set_ylabel('$mean translation error$')
+        translation_err_axis.yaxis.label.set_color('red')
+        translation_err_axis.tick_params(axis='y', colors='red')
+
+        # x-values for where to plot the predictions of the gaussian process
+        renderspace_x = np.atleast_2d(np.linspace(0, 1, 1000)).T
+        # Get mean and sigma from the gaussian process
+        y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
+        # Plot the observations given to the gaussian process
+        metric_axis.plot(self.optimizer.X.flatten(), self.optimizer.Y, 'b.', markersize=10, label=u'Observations')
+        # Plot the gp's prediction mean
+        metric_axis.plot(renderspace_x, y_pred, 'b-', label=u'Prediction')
+        # Plot the gp's prediction 'sigma-tube'
+        metric_axis.fill(np.concatenate([renderspace_x, renderspace_x[::-1]]),
                  np.concatenate([y_pred - 1.9600 * sigma,
                                 (y_pred + 1.9600 * sigma)[::-1]]),
                  alpha=.5, fc='b', ec='None', label='95% confidence interval')
-        plt.xlabel('$x$')
-        plt.ylabel('$f(x)$')
-        plt.ylim(0, 1.2)
-        plt.legend(loc='upper left')
-        plt.savefig(os.path.join(self._params['plots_directory'], plot_name))
-        plt.clf()
+
+        # Plot all evaluation function samples we have
+        optimized_param_values = []
+        y_metric = []
+        y_nr_matches = []
+        y_rotation_err = []
+        y_translation_err = []
+        for optimized_params_dict, y_dict in self.eval_function:
+            for param_name in optimized_params_dict.keys():
+                optimized_param_values.append(optimized_params_dict[param_name]['value'])
+                y_metric.append(y_dict['metric'])
+                sample = y_dict['sample']
+                y_nr_matches.append(sample.nr_matches)
+                y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
+                y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
+                break # Currently only support 1D x-axis
+        # Sort the lists before plotting
+        temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
+        optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
+        metric_axis.plot(optimized_param_values, y_metric, 'b:', label=u"All known samples")
+        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'g:', label="Nr. matches")
+        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'r:', label="Rotation error")
+        translation_err_axis.plot(optimized_param_values, y_translation_err, 'r:', label="Translation error")
+
+        # Setup legend
+        metric_axis.legend(loc='upper left')
+
+        # Save and close
+        fig.savefig(os.path.join(self._params['plots_directory'], plot_name))
+        fig.clf()
 
     def _resolve_relative_path(self, path):
         """
@@ -175,8 +226,8 @@ if __name__ == '__main__': # don't execute when module is imported
                 count += 1
                 print(Y['sample'])
                 print("\tOptimized Parameters:")
-                for name, defs in experiment_parameters_dict['optimization_definitions'].items():
-                    print("\t\t", defs['rosparam_name'], "=", X[defs['rosparam_name']], sep="")
+                for name, defs in X.items():
+                    print("\t\t", name, "=", defs['value'])
                 print("\tMetric-value:", Y['metric'])
             print("Number of usable samples:", count)
             sys.exit()

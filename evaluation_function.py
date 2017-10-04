@@ -36,7 +36,7 @@ class EvaluationFunction(object):
     Available metrics:
         * test: Metric for testing, will circumvent the sample generation and just model f(x)=50x*sin(50x).
                 Will only work as long as just one parameter is optimized.
-        * mean_translation_error: Will return mean translation error of a Sample's matches.
+        * mean_error: Will return mean error of a Sample's matches.
     """
 
     def __init__(self, sample_db, default_rosparams, optimization_definitions, used_metric, rounding_decimal_places=0):
@@ -125,14 +125,22 @@ class EvaluationFunction(object):
     def __iter__(self):
         """
         Iterator for getting all available samples from the database, which define this EvaluationFunction.
+
+        This means only those Samples are yielded, which have parameter values matching the ones in default_rosparams.
+        Only parameter values of currently optimized parameters are allowed to differ.
+        The filtering is done in the _defined_by function.
         
-        Returns samples as a tuple (X, Y), with X: A dict of optimized_rosparams and their respective value.
+        Returns samples as a tuple (X, Y), with X: A dict of the optimized_rosparams; Contains the param's 'value'
+                                                                                      and its 'rosparam_name'.
                                          , and with Y: A dict with the current metric's value at 'metric' and
                                                        the Sample object itself at 'sample'.
         """
         for sample in self._sample_db:
             if self._defined_by(sample.parameters):
-                X = sample.parameters
+                X = dict()
+                for name, defs in self._optimization_definitions.items():
+                    X[name] = {'rosparam_name': defs['rosparam_name'],
+                               'value': sample.parameters[defs['rosparam_name']]}
                 Y = {'metric': self.metric(sample),
                      'sample': sample}
                 yield (X, Y)
