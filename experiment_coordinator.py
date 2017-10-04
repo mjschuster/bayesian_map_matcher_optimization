@@ -30,6 +30,7 @@ class ExperimentCoordinator(object):
         self._relpath_root = relpath_root
 
         # Resolve relative paths
+        self._params['plots_directory'] = self._resolve_relative_path(self._params['plots_directory'])
         database_path = self._resolve_relative_path(self._params['database_path'])
         sample_directory_path = self._resolve_relative_path(self._params['sample_directory'])
         rosparams_path = self._resolve_relative_path(self._params['default_rosparams_yaml_path'])
