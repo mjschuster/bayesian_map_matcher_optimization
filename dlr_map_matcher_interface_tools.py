@@ -22,14 +22,14 @@ def _run_evaluation(command):
         if stdout_line.startswith('{'): # Is the output a python dict's string representation?
             status_dict = ast.literal_eval(stdout_line)
             status_string = "\r                                                            " +\
-                            "                                   \r"
+                            "                                                            \r"
             for thread_msg in status_dict['thread_msgs']:
-                status_string += "\t\t" + thread_msg + "\n"
-            status_string += "\t\t[Active threads " + str(status_dict['active_jobs']) +\
-                                               "/" + str(status_dict['max_parallel_jobs']) + "]" +\
-                            " [Finished jobs " + str(status_dict['completed_jobs']) +\
+                status_string += "\t\t" + thread_msg + "\n\t\t"
+            for hostname, status in status_dict['remotes_status'].items():
+                status_string += "[" + str(status['active']) + "/" + str(status['max_parallel_jobs']) + " on " + hostname + "] "
+            status_string += "[Finished jobs " + str(status_dict['completed_jobs']) +\
                                            "/" + str(status_dict['total_jobs']) + "]" +\
-                            " [Completed in " + str(status_dict['estimated_finish_time']) + "] " +\
+                             " [Completed in " + str(status_dict['estimated_finish_time']) + "] " +\
                             indicator_lenght * "."
             indicator_lenght = 0 if indicator_lenght == 3 else indicator_lenght+1
         else: # otherwise just yield the string
