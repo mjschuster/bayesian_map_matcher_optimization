@@ -82,9 +82,68 @@ class ExperimentCoordinator(object):
                 init_dict[p_name].append(p_value)
         self.optimizer.explore(init_dict)
 
-    def save_gp_plot(self, plot_name):
+    def plot_visualize_metric(self, plot_name):
         """
-        Helper for saving plots of the GPR state to disk.
+        Saves a plot to visualize the metric's behaviour.
+
+        Contains data from all available samples of the current EvaluationFunction.
+        Shows all raw datapoints as well as the calculated metric.
+        """
+        # Setup the figure and its axes
+        fig, (nr_matches_axis, translation_err_axis, rotation_err_axis) = plt.subplots(3, sharex=True, sharey=False)
+        #fig.subplots_adjust(hspace=0)
+        plt.setp([a.get_xticklabels() for a in fig.axes[:-1]], visible=False)
+        metric_axes = [nr_matches_axis.twinx(), translation_err_axis.twinx(), rotation_err_axis.twinx()]
+        rotation_err_axis.set_xlabel("CSHOT descriptor radius")
+        nr_matches_axis.set_ylabel("Number of Matches")
+        nr_matches_axis.yaxis.label.set_color('red')
+        nr_matches_axis.tick_params(axis='y', colors='red')
+        translation_err_axis.set_ylabel(u"$Err_{translation}$ [m]")
+        translation_err_axis.yaxis.label.set_color('m')
+        translation_err_axis.tick_params(axis='y', colors='m')
+        rotation_err_axis.set_ylabel(u"$Err_{rotation}$ [deg]")
+        rotation_err_axis.yaxis.label.set_color('c')
+        rotation_err_axis.tick_params(axis='y', colors='c')
+
+        # Plot all evaluation function samples we have
+        optimized_param_values = []
+        y_metric = []
+        y_nr_matches = []
+        y_rotation_err = []
+        y_translation_err = []
+        for optimized_params_dict, y_dict in self.eval_function:
+            for param_name in optimized_params_dict.keys():
+                optimized_param_values.append(optimized_params_dict[param_name]['value'])
+                y_metric.append(y_dict['metric'])
+                sample = y_dict['sample']
+                y_nr_matches.append(sample.nr_matches)
+                y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
+                y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
+                break # Currently only support 1D x-axis
+        # Sort the lists before plotting
+        temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
+        optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
+        for metric_axis in metric_axes:
+            metric_axis.set_ylabel(self.eval_function.metric_string)
+            metric_axis.yaxis.label.set_color('blue')
+            metric_axis.tick_params(axis='y', colors='blue')
+            metric_axis.plot(optimized_param_values, y_metric, 'b:')
+        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'r.')
+        translation_err_axis.plot(optimized_param_values, y_translation_err, 'm.')
+        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'c.')
+
+        # Save and close
+        path = os.path.join(self._params['plots_directory'], plot_name)
+        print("\tSaving metric plot to", path)
+        fig.savefig(path)
+        fig.clf()
+
+    def plot_gpr(self, plot_name):
+        """
+        Saves a plot of the GPR estimate to disk.
+
+        Visualizes the estimated function mean and 95% confidence area from the GPR.
+        Additionally shows the actual values for *all* available samples of the current EvaluationFunction.
         """
 
         # Setup the figure and its axes
@@ -143,16 +202,18 @@ class ExperimentCoordinator(object):
         # Sort the lists before plotting
         temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
         optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
-        metric_axis.plot(optimized_param_values, y_metric, 'b:', label=u"All known samples")
-        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'g:', label="Nr. matches")
-        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'r:', label="Rotation error")
-        translation_err_axis.plot(optimized_param_values, y_translation_err, 'r:', label="Translation error")
+        metric_axis.plot(optimized_param_values, y_metric, 'b-', label=u"All known samples")
+        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'g-', label="Nr. matches")
+        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'r-', label="Rotation error")
+        translation_err_axis.plot(optimized_param_values, y_translation_err, 'r-', label="Translation error")
 
         # Setup legend
         metric_axis.legend(loc='upper left')
 
         # Save and close
-        fig.savefig(os.path.join(self._params['plots_directory'], plot_name))
+        path = os.path.join(self._params['plots_directory'], plot_name)
+        print("\tSaving gpr plot to", path)
+        fig.savefig(path)
         fig.clf()
 
     def _resolve_relative_path(self, path):
@@ -205,6 +266,9 @@ if __name__ == '__main__': # don't execute when module is imported
                             dest='remove_samples', nargs='+', help=rm_arg_help)
         parser.add_argument('--add-samples', '-a',
                             dest='add_samples', nargs='+', help=add_arg_help)
+        parser.add_argument('--plot-metric',
+                            dest='plot_metric', action='store_true',
+                            help="Plots a visualization of the metric's behaviour.")
         args = parser.parse_args()
 
         # Load the parameters from the yaml into a dict
@@ -242,13 +306,17 @@ if __name__ == '__main__': # don't execute when module is imported
             for sample_path in args.add_samples:
                 experiment_coordinator.sample_db.create_sample_from_map_matcher_results(sample_path, override_existing=True)
             sys.exit()
+        if args.plot_metric:
+            print("--> Mode: Plot Metric <--")
+            experiment_coordinator.plot_visualize_metric("metric_visualization.svg")
+            sys.exit()
 
         print("--> Mode: Experiment <--")
         iteration = 0
         experiment_coordinator.initialize_optimizer()
         while True:
             experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
-            experiment_coordinator.save_gp_plot(str(iteration).zfill(5) + "_iteration.svg")
+            experiment_coordinator.plot_gpr(str(iteration).zfill(5) + "_iteration.svg")
             iteration += 1
 
     # Execute cmdline interface
