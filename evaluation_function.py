@@ -32,6 +32,8 @@ class EvaluationFunction(object):
     """
 
     METRICS = ['test', 'mean_error']
+    METRIC_STRINGS = {'test': u"$50x * \sin(50x)$",
+                      'mean_error': u"$\\frac{1}{\\frac{Err_{t} - 0.2}{0.8} + \\frac{Err_{r} - 2}{6}}$"}
     """
     Available metrics:
         * test: Metric for testing, will circumvent the sample generation and just model f(x)=50x*sin(50x).
@@ -187,6 +189,14 @@ class EvaluationFunction(object):
             value = 1 / (translation_error + rotation_error) # invert the measure so the max is useful (ugly, TODO)
             #print("Sample's result with metric '" + self._used_metric + "': ", value)
             return value
+
+    @property
+    def metric_string(self):
+        """
+        A string representation of the metric's formula.
+        Possibly contains LaTeX code.
+        """
+        return EvaluationFunction.METRIC_STRINGS[self._used_metric]
 
 class Sample(object):
     """
