@@ -148,30 +148,12 @@ class ExperimentCoordinator(object):
 
         # Setup the figure and its axes
         fig, metric_axis = plt.subplots()
-        # Create twin axis that share the x-axis of the main axis
-        nr_matches_axis = metric_axis.twinx()
-        rotation_err_axis = metric_axis.twinx()
-        translation_err_axis = metric_axis.twinx()
         # Setup labels and colors
-        metric_axis.set_xlabel('$parameters$')
-        metric_axis.set_ylabel('$metric$')
-        metric_axis.yaxis.label.set_color('blue')
-        metric_axis.tick_params(axis='y', colors='blue')
-
-        nr_matches_axis.set_ylabel('$nr matches$')
-        nr_matches_axis.yaxis.label.set_color('green')
-        nr_matches_axis.tick_params(axis='y', colors='green')
-
-        rotation_err_axis.set_ylabel('$mean rotation error$')
-        rotation_err_axis.yaxis.label.set_color('red')
-        rotation_err_axis.tick_params(axis='y', colors='red')
-
-        translation_err_axis.set_ylabel('$mean translation error$')
-        translation_err_axis.yaxis.label.set_color('red')
-        translation_err_axis.tick_params(axis='y', colors='red')
+        metric_axis.set_xlabel('CSHOT descriptor radius')
+        metric_axis.set_ylabel(self.eval_function.metric_string)
 
         # x-values for where to plot the predictions of the gaussian process
-        renderspace_x = np.atleast_2d(np.linspace(0, 1, 1000)).T
+        renderspace_x = np.atleast_2d(np.linspace(0, 0.7, 1000)).T
         # Get mean and sigma from the gaussian process
         y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
         # Plot the observations given to the gaussian process
@@ -202,13 +184,9 @@ class ExperimentCoordinator(object):
         # Sort the lists before plotting
         temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
         optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
-        metric_axis.plot(optimized_param_values, y_metric, 'b-', label=u"All known samples")
-        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'g-', label="Nr. matches")
-        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'r-', label="Rotation error")
-        translation_err_axis.plot(optimized_param_values, y_translation_err, 'r-', label="Translation error")
+        metric_axis.plot(optimized_param_values, y_metric, 'r:', label=u"All known samples")
 
-        # Setup legend
-        metric_axis.legend(loc='upper left')
+        metric_axis.legend(loc='lower right')
 
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
