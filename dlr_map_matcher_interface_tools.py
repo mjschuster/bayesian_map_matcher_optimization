@@ -62,6 +62,7 @@ def create_evaluation_function_sample(toplevel_directory, sample):
                     raise IOError("Something went wrong while generating this part of the sample,\
                                    couldn't find ", os.path.join(root, "MAP_MATCHER_JOB_COMPLETED"))
                 pickle_path = os.path.join(root, file_name)
+                print("\tLoading pickle", pickle_path)
                 eval_result_data = pickle.load(open(pickle_path, 'rb'), encoding='latin1')
                 sample.translation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['translation'].values())
                 sample.rotation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['rotation'].values())
