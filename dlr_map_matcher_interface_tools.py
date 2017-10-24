@@ -16,26 +16,24 @@ def _run_evaluation(command):
     Helper method; Starts the evaluation program as subprocess, since it only works with python2 (thanks, ROS...)
     Yields strings to describe the subprocess' status as it runs.
     """
-    indicator_lenght = 0
+    indicator_length = 0
     eval_process = subprocess.Popen(command, stdout=subprocess.PIPE, universal_newlines=True)
     for stdout_line in iter(eval_process.stdout.readline, ""):
         if stdout_line.startswith('{'): # Is the output a python dict's string representation?
-            status_dict = ast.literal_eval(stdout_line)
-            status_string = "\r                                                            " +\
-                            "                                                            \r"
-            for thread_msg in status_dict['thread_msgs']:
-                status_string += "\t\t" + thread_msg + "\n\t\t"
-            for hostname, status in status_dict['remotes_status'].items():
-                status_string += "[" + str(status['active']) + "/" + str(status['max_parallel_jobs']) + " on " + hostname + "] "
-            status_string += "[Finished jobs " + str(status_dict['completed_jobs']) +\
-                                           "/" + str(status_dict['total_jobs']) + "]" +\
-                             " [Completed in " + str(status_dict['estimated_finish_time']) + "] " +\
-                            indicator_lenght * "."
-            indicator_lenght = 0 if indicator_lenght == 3 else indicator_lenght+1
+            info_dict = ast.literal_eval(stdout_line)
+            # Print info string by reading from info dict
+            info_string = "[" + str(info_dict['completed_jobs']) + "/" + str(info_dict['total_jobs']) + "] "
+            for hostname, state_list in info_dict['remotes'].items():
+                info_string += "[" + hostname
+                for state in state_list: # Print state for each RemoteWorker
+                    info_string += "|" + state + "]"
+            if info_dict['avg_job_time']:
+                info_string += "[avg. " + str(info_dict['avg_job_time']).split('.', 2)[0] + "]"
+                info_string += "[eta " + str(info_dict['estimated_finish_time']).split('.', 2)[0] + "]"
+            status_string = "\t\t" + info_string + indicator_length * '.' + '                  \r'
         else: # otherwise just yield the string
             status_string = "\t\t" + stdout_line 
         yield status_string
-        sys.stdout.flush()
     eval_process.stdout.close()
     return_code = eval_process.wait()
     if return_code:
@@ -98,6 +96,7 @@ def generate_sample(rosparams, sample_generator_config):
     results_path = os.path.join(env_dir, "results") # Path for map matcher's output
     yaml_path = os.path.join(env_dir, "evaluation.yaml") # Path for map matcher's config
     rosparams_path = os.path.join(env_dir, "params.yaml") # Path for the rosparams
+    eval_log_path = os.path.join(env_dir, "evaluation.log") # Path for the rosparams
     # Add the paths to the config, so the map_matcher_evaluation script finds it
     sample_generator_config['parameters'] = rosparams_path
     sample_generator_config['results'] = results_path
@@ -110,11 +109,12 @@ def generate_sample(rosparams, sample_generator_config):
     with open(rosparams_path, 'w') as rosparams_file:
         yaml.dump(rosparams, rosparams_file)
 
-    evaluation_command = [sample_generator_config['evaluator_executable'], yaml_path]
+    evaluation_command = [sample_generator_config['evaluator_executable'], yaml_path, '-l', eval_log_path]
     for arg_string in sample_generator_config['extra_arguments']:
         evaluation_command.append(arg_string)
     print("\t\tStarting evaluation process in directory", env_dir)
     # Run the evaluation and print its output
     for output in _run_evaluation(evaluation_command):
         print(output, end="")
+        sys.stdout.flush()
     return results_path
