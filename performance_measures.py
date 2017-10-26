@@ -37,15 +37,20 @@ class PerformanceMeasure(object):
         raise RuntimeError("Shouldn't call (or instantiate...) the PerformanceMeasure superclass")
         return sample.something * 1337 # Do some magic with the sample's data
 
-    def plot(self, path, x_min, x_max, resolution=1000):
-        """
-        Plots the Performance with continuous input values from x_min to x_max.
-        """
+    def _prepare_plot(self, x_min, x_max, resolution=1000):
         x_space = np.linspace(x_min, x_max, resolution)
         fig, ax = plt.subplots()
         ax.set_xlabel("x")
         ax.set_ylabel(str(self))
-        ax.plot(x_space, self(x_space))
+        ax.plot(x_space, self(x_space), label=str(self))
+        ax.set_xlim(x_min, x_max)
+        return fig, ax
+
+    def plot(self, path, x_min, x_max):
+        """
+        Plots the Performance with continuous input values from x_min to x_max.
+        """
+        fig, ax = self._prepare_plot(x_min, x_max, resolution)
         fig.savefig(path)
         fig.clf()
 
@@ -92,21 +97,33 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         :param max_relevant_error: The maximum translation error that should still be distinguishable from higher errors. (i.e. mapped not too close to 0)
         :param min_relevant_error: Same for the minimum, defaults to 0.
         """
-        RELEVANT_X_MAX_SLOPE = 0.95
-        x0 = (float(max_relevant_error) - float(min_relevant_error)) / 2
-        # Find k by using point (max_relevant_error, RELEVANT_X_MAX_SLOPE)
+        self.x_min_y_value = 0.98 # determines how close to 1 x_min gets mapped (x_max gets mapped to 1-x_min_y_value)
+        self.min_relevant_error = float(min_relevant_error)
+        self.max_relevant_error = float(max_relevant_error)
+        x0 = (self.max_relevant_error - self.min_relevant_error) / 2
+        # Find k by using point (max_relevant_error, x_min_y_value)
         # Solved logistic function for k:
-        k = np.log(1 / ((1 / RELEVANT_X_MAX_SLOPE) - 1) / x0 - float(max_relevant_error))
+        k = np.log(1 / ((1 / self.x_min_y_value) - 1) / x0 - self.max_relevant_error)
         # min_relevant_error will fit, because of the function's symmetry and the given x0
         super().__init__(1, x0, k)
 
     def __call__(self, sample):
-        if isinstance(sample, np.ndarray): # Special case for plotting the function
+        if isinstance(sample, np.ndarray) or isinstance(sample, float): # Special case for plotting the function
             return super(LogisticTranslationErrorMeasure, self).__call__(sample)
         # Put each translation error through the Logistic function (super().__call__)
         match_errors = [super(LogisticTranslationErrorMeasure, self).__call__(err_t) for err_t in sample.translation_errors]
         # Sum them up and normalize with the number of matches
         return sum(match_errors, 0) / sample.nr_matches
+
+    def plot(self, path, x_min, x_max):
+        fig, ax = self._prepare_plot(x_min, x_max)
+        ax.set_xlabel("x: Translation Errors")
+        ax.scatter([self.min_relevant_error, self.max_relevant_error],
+                   [self(self.min_relevant_error), self(self.max_relevant_error)],
+                   c='r', label=u"${(" + str(round(self.min_relevant_error, 2)) + u"," + str(round(self(self.min_relevant_error), 2)) + "),(" + str(round(self.max_relevant_error, 2)) + u"," + str(round(self(self.max_relevant_error), 2)) + u")}$")
+        ax.legend(loc='lower left')
+        fig.savefig(path)
+        fig.clf()
 
 
 class SinusTestFunction(PerformanceMeasure):
