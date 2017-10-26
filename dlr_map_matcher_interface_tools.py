@@ -26,11 +26,12 @@ def _run_evaluation(command):
             for hostname, state_list in info_dict['remotes'].items():
                 info_string += "[" + hostname
                 for state in state_list: # Print state for each RemoteWorker
-                    info_string += "|" + state + "]"
-            if info_dict['avg_job_time']:
-                info_string += "[avg. " + str(info_dict['avg_job_time']).split('.', 2)[0] + "]"
-                info_string += "[eta " + str(info_dict['estimated_finish_time']).split('.', 2)[0] + "]"
+                    info_string += "|" + state
+                info_string +=  "] "
+            info_string += "[avg. " + info_dict['avg_job_time'] + "] "
+            info_string += "[eta " + info_dict['estimated_finish_time'] + "]"
             status_string = "\t\t" + info_string + indicator_length * '.' + '                  \r'
+            indicator_length = (indicator_length + 1 if indicator_length < 3 else 0)
         else: # otherwise just yield the string
             status_string = "\t\t" + stdout_line 
         yield status_string
@@ -56,9 +57,17 @@ def create_evaluation_function_sample(toplevel_directory, sample):
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):
         for file_name in files:
             if file_name == "statistics.pkl":
-                if not "MAP_MATCHER_JOB_COMPLETED" in files:
-                    raise IOError("Something went wrong while generating this part of the sample,\
-                                   couldn't find ", os.path.join(root, "MAP_MATCHER_JOB_COMPLETED"))
+                # Check if data generation actually finished, using the map matcher log file
+                with open(os.path.join(root, "map_matcher.log"), 'r') as log_file:
+                    completed = False
+                    for line in log_file.readlines():
+                        if "no more submaps. stop." in line:
+                            completed = True
+                            break
+                    if not completed:
+                        raise IOError("Something went wrong while generating this part of the sample,\
+                                       couldn't find ", os.path.join(root, "MAP_MATCHER_JOB_COMPLETED"))
+                # Sample seems ok, find and load pickle...
                 pickle_path = os.path.join(root, file_name)
                 print("\tLoading pickle", pickle_path)
                 eval_result_data = pickle.load(open(pickle_path, 'rb'), encoding='latin1')
