@@ -59,7 +59,7 @@ class PerformanceMeasure(object):
 class LogisticFunction(PerformanceMeasure):
     """
     PerformanceMeasure that uses the logistic function in its raw form:
-    f(x) = l / (1 + e^(-k(x-x0)))
+    f(x) = 1 - l / (1 + e^(-k(x-x0)))
     with x being float.
     """
     def __init__(self, l=1, x0=0, k=1):
@@ -75,19 +75,21 @@ class LogisticFunction(PerformanceMeasure):
         self.k = float(k)
 
     def __str__(self):
-        return u"$\\frac{" + str(self.l) + u"}{1 + e^{-" + str(round(self.k, 3)) + u" * (x - " + str(self.x0) + u")}}$"
+        return u"$1 - \\frac{" + str(self.l) + u"}{1 + e^{-" + str(round(self.k, 3)) + u" * (x - " + str(self.x0) + u")}}$"
 
     def __call__(self, x):
-        return self.l / (1 + np.exp(-self.k * (x - self.x0)))
+        return 1 - self.l / (1 + np.exp(-self.k * (x - self.x0)))
 
 class LogisticTranslationErrorMeasure(LogisticFunction):
     """
     PerformanceMeasure that uses the logistic function to map possible translation errors between 0 and 1.
+    High translation errors will be mapped close to 0, low ones close to 1.
+    Therefor, the goal should be to maximize this measure.
     """
     def __init__(self, max_relevant_error, min_relevant_error=0):
         """
         Initialize with setting parameters
-        :param max_relevant_error: The maximum translation error that should still be distinguishable from higher errors. (i.e. mapped not too close to 1)
+        :param max_relevant_error: The maximum translation error that should still be distinguishable from higher errors. (i.e. mapped not too close to 0)
         :param min_relevant_error: Same for the minimum, defaults to 0.
         """
         RELEVANT_X_MAX_SLOPE = 0.95
@@ -99,6 +101,8 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         super().__init__(1, x0, k)
 
     def __call__(self, sample):
+        if isinstance(sample, np.ndarray): # Special case for plotting the function
+            return super(LogisticTranslationErrorMeasure, self).__call__(sample)
         # Put each translation error through the Logistic function (super().__call__)
         match_errors = [super(LogisticTranslationErrorMeasure, self).__call__(err_t) for err_t in sample.translation_errors]
         # Sum them up and normalize with the number of matches
