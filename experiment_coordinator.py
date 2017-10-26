@@ -153,10 +153,10 @@ class ExperimentCoordinator(object):
         fig, metric_axis = plt.subplots()
         # Setup labels and colors
         metric_axis.set_xlabel('CSHOT descriptor radius')
-        metric_axis.set_ylabel(self.eval_function.metric_string)
+        metric_axis.set_ylabel(str(self.eval_function.performance_measure))
 
         # x-values for where to plot the predictions of the gaussian process
-        renderspace_x = np.atleast_2d(np.linspace(0, 0.7, 1000)).T
+        renderspace_x = np.atleast_2d(np.linspace(0, 1, 1000)).T
         # Get mean and sigma from the gaussian process
         y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
         # Plot the observations given to the gaussian process
@@ -187,7 +187,8 @@ class ExperimentCoordinator(object):
         # Sort the lists before plotting
         temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
         optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
-        metric_axis.plot(optimized_param_values, y_metric, 'r:', label=u"All known samples")
+        metric_axis.scatter(optimized_param_values, y_metric, c='r', label=u"All known samples")
+        metric_axis.set_ylim(0, 1)
 
         metric_axis.legend(loc='lower right')
 
