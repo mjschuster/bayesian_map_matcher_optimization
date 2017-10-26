@@ -16,6 +16,8 @@ import numpy as np
 import os
 import pickle
 
+from performance_measures import PerformanceMeasure
+
 # import the DLR specific code to gather data
 import dlr_map_matcher_interface_tools
 INTERFACE_MODULE = dlr_map_matcher_interface_tools
@@ -31,17 +33,7 @@ class EvaluationFunction(object):
     This should reduce the time subsequent experiments will require, after a bunch of samples have already been generated.
     """
 
-    METRICS = ['test', 'mean_error']
-    METRIC_STRINGS = {'test': u"$50x * \sin(50x)$",
-                      'mean_error': u"$\\frac{1}{\\frac{Err_{t} - 0.2}{0.8} + \\frac{Err_{r} - 2}{6}}$"}
-    """
-    Available metrics:
-        * test: Metric for testing, will circumvent the sample generation and just model f(x)=50x*sin(50x).
-                Will only work as long as just one parameter is optimized.
-        * mean_error: Will return mean error of a Sample's matches.
-    """
-
-    def __init__(self, sample_db, default_rosparams, optimization_definitions, used_metric, rounding_decimal_places=0):
+    def __init__(self, sample_db, default_rosparams, optimization_definitions, performance_measure, rounding_decimal_places=0):
         """
         Creates an EvaluationFunction object.
         
@@ -50,20 +42,20 @@ class EvaluationFunction(object):
                                   with the default values.
         :param optimization_definitions: A dict that contains the definitions which rosparams which are beeing optimized in this experiment and within which bounds.
                                          Expects a dict that contains one or multiple entires, each containing rosparam_name, min_bound and max_bound.
-        :param used_metric: A string to tell which metric should be used. See EvaluationFunction.METRICS for all implemented metrics.
+        :param performance_measure: An PerformanceMeasure object
                             Some metrics may terminate the experiment, if your Sample instances don't contain the necessary data.
         :param rounding_decimal_places: The number of decimal places to which parameters of type float should be rounded to.
                                         If zero, no rounding will take place.
         """
 
         # error checking
-        if not used_metric in EvaluationFunction.METRICS:
-            raise ValueError("Unknown metric", used_metric, "possible values:", EvaluationFunction.METRICS)
+        if not isinstance(performance_measure, PerformanceMeasure):
+            raise ValueError("Object given wasn't a PerformanceMeasure")
 
+        self.performance_measure = performance_measure
         self._sample_db = sample_db
         self._default_rosparams = default_rosparams
         self._optimization_definitions = optimization_definitions
-        self._used_metric = used_metric
         self._rounding_decimal_places = rounding_decimal_places
 
     def evaluate(self, **optimized_rosparams):
@@ -111,18 +103,13 @@ class EvaluationFunction(object):
                 print("\tWarning, rounding float value", p_name, ":", p_value, "->", rounded_p_value)
                 optimized_rosparams[p_name] = rounded_p_value
 
-        if self._used_metric == 'test':
-            # test metric expects only one optimized parameter, so just get the first value in the dict
-            x = [p_value for p_value in optimized_rosparams.values()][0]
-            return 50*x * np.sin(50*x)
-
         # Create the full set of parameters by updating the default parameters with the optimized parameters.
         complete_rosparams = self._default_rosparams.copy()
         complete_rosparams.update(optimized_rosparams)
         # Get the sample from the db (this call blocks until the sample is generated, if it isn't in the db)
         sample = self._sample_db[complete_rosparams]
         # Calculate the metric
-        return self.metric(sample)
+        return self.performance_measure(sample)
 
     def __iter__(self):
         """
@@ -143,7 +130,7 @@ class EvaluationFunction(object):
                 for name, defs in self._optimization_definitions.items():
                     X[name] = {'rosparam_name': defs['rosparam_name'],
                                'value': sample.parameters[defs['rosparam_name']]}
-                Y = {'metric': self.metric(sample),
+                Y = {'metric': self.performance_measure(sample),
                      'sample': sample}
                 yield (X, Y)
 
@@ -168,36 +155,6 @@ class EvaluationFunction(object):
 
         return True
 
-    def metric(self, sample):
-        """
-        Returns the active metric's value for a given Sample object.
-        Its concrete behaviour depends on the used_metric parameter given to the init method.
-
-        :param sample: The Sample for which the metric should be calculated.
-        """
-
-        # Error handling
-        if not isinstance(sample, Sample):
-            raise ValueError("Given sample object isn't a Sample.", sample)
-
-        if self._used_metric == 'mean_error':
-            translation_error = sum(sample.translation_errors) / sample.nr_matches
-            rotation_error = sum(sample.rotation_errors) / sample.nr_matches
-            # Adjust value range with some values (ugly, TODO)
-            translation_error = (translation_error - 0.2) / 0.8
-            rotation_error = (rotation_error - 2) / 6
-            value = 1 / (translation_error + rotation_error) # invert the measure so the max is useful (ugly, TODO)
-            #print("Sample's result with metric '" + self._used_metric + "': ", value)
-            return value
-
-    @property
-    def metric_string(self):
-        """
-        A string representation of the metric's formula.
-        Possibly contains LaTeX code.
-        """
-        return EvaluationFunction.METRIC_STRINGS[self._used_metric]
-
 class Sample(object):
     """
     Represents one sample of the evaluation function.
@@ -210,7 +167,7 @@ class Sample(object):
         *---> Translation error n and rotation error n are both expected to be the result of match n.
         * parameters: A dict of all rosparams used for the map matcher run
         * time: A datetime.timedelta object, expressing the time-cost of this Sample.
-        * origin: A string which describes where that sample was generated. Probably should be a path to the map matcher results directory.
+        * origin: A string which describes where that sample was generated. Probably should be a path to the map matcher results directory. (for debugging)
     """
 
     def __init__(self):

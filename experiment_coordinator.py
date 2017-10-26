@@ -11,6 +11,8 @@ import rosparam
 import yaml
 import sys
 
+from performance_measures import PerformanceMeasure
+
 from bayes_opt import BayesianOptimization
 
 class ExperimentCoordinator(object):
@@ -52,9 +54,10 @@ class ExperimentCoordinator(object):
         print("Setting up EvaluationFunction...")
         optimization_definitions = self._params['optimization_definitions']
         default_rosparams = rosparam.load_file(rosparams_path)[0][0]
+        self.performance_measure = PerformanceMeasure.from_dict(self._params['performance_measure'])
         self.eval_function = evaluation_function.EvaluationFunction(self.sample_db, default_rosparams,
                                                                     optimization_definitions,
-                                                                    self._params['evaluation_function_metric'],
+                                                                    self.performance_measure,
                                                                     self._params['rounding_decimal_places'])
         ###########
         # Create an BayesianOptimization object, that contains the GPR logic.
@@ -124,7 +127,7 @@ class ExperimentCoordinator(object):
         temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
         optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
         for metric_axis in metric_axes:
-            metric_axis.set_ylabel(self.eval_function.metric_string)
+            metric_axis.set_ylabel(str(self.performance_measure))
             metric_axis.yaxis.label.set_color('blue')
             metric_axis.tick_params(axis='y', colors='blue')
             metric_axis.plot(optimized_param_values, y_metric, 'b:')

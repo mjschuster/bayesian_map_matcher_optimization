@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 """
 Classes for different ways to measure the map matcher's performance, based on information in a sample.
-There are subclasses which will take float values as parameter for the __call__ method
-and those that work directly on Samples.
-Only those that take a Sample are meant for immediate usage with evaluation_function.py.
+Only classes that end with Measure (not *Function classes) take a Sample as __call__ parameter and are meant for immediate usage with evaluation_function.py.
 """
-
-from evaluation_function import Sample
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,6 +15,9 @@ class PerformanceMeasure(object):
     Other than that, it mainly exists for showing what is necessary to implement when adding a new PerformanceMeasure subclass.
     And to allow isinstance tests with the PerformanceMeasure type.
     """
+
+    AVAILABLE_TYPES = ['LogisticTranslationErrorMeasure']
+
     def __init__(self):
         """
         Placeholder constructor, will maybe do sth in the future...
@@ -50,7 +49,14 @@ class PerformanceMeasure(object):
         fig.savefig(path)
         fig.clf()
 
-class LogisticMeasure(PerformanceMeasure):
+    @classmethod
+    def from_dict(cls, measure_dict):
+        if measure_dict['type'] == cls.AVAILABLE_TYPES[0]: # LogisticTranslationErrorMeasure
+            return LogisticTranslationErrorMeasure(max_relevant_error=measure_dict['max_relevant_error'])
+        else:
+            raise ValueError("Type not available", cls.AVAILABLE_TYPES)
+
+class LogisticFunction(PerformanceMeasure):
     """
     PerformanceMeasure that uses the logistic function in its raw form:
     f(x) = l / (1 + e^(-k(x-x0)))
@@ -74,7 +80,7 @@ class LogisticMeasure(PerformanceMeasure):
     def __call__(self, x):
         return self.l / (1 + np.exp(-self.k * (x - self.x0)))
 
-class LogisticTranslationErrorMeasure(LogisticMeasure):
+class LogisticTranslationErrorMeasure(LogisticFunction):
     """
     PerformanceMeasure that uses the logistic function to map possible translation errors between 0 and 1.
     """
@@ -92,7 +98,14 @@ class LogisticTranslationErrorMeasure(LogisticMeasure):
         # min_relevant_error will fit, because of the function's symmetry and the given x0
         super().__init__(1, x0, k)
 
-class SinusTestMeasure(PerformanceMeasure):
+    def __call__(self, sample):
+        # Put each translation error through the Logistic function (super().__call__)
+        match_errors = [super(LogisticTranslationErrorMeasure, self).__call__(err_t) for err_t in sample.translation_errors]
+        # Sum them up and normalize with the number of matches
+        return sum(match_errors, 0) / sample.nr_matches
+
+
+class SinusTestFunction(PerformanceMeasure):
     """
     PerformanceMeasure that can be used for testing without any samples.
     It simply models sin(x)=a*x*sin(b*x), with x being a float.
@@ -122,7 +135,7 @@ if __name__ == '__main__': # don't execute when module is imported
         
         if args.type == 'logistic_raw':
             print("Logistic measure with x0 =", args.params[0], "and k =", args.params[1])
-            l = LogisticMeasure(x0 = args.params[0], k=args.params[1])
+            l = LogisticFunction(x0 = args.params[0], k=args.params[1])
             l.plot(args.path, args.min, args.max)
         elif args.type == 'logistic_tra':
             print("Logistic translation measure with max_relevant_error =", args.params[0])
