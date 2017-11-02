@@ -65,8 +65,7 @@ def create_evaluation_function_sample(toplevel_directory, sample):
                             completed = True
                             break
                     if not completed:
-                        raise IOError("Something went wrong while generating this part of the sample,\
-                                       couldn't find ", os.path.join(root, "MAP_MATCHER_JOB_COMPLETED"))
+                        raise IOError("Sample generation wasn't completed.")
                 # Sample seems ok, find and load pickle...
                 pickle_path = os.path.join(root, file_name)
                 print("\tLoading pickle", pickle_path)
@@ -75,10 +74,6 @@ def create_evaluation_function_sample(toplevel_directory, sample):
                 sample.rotation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['rotation'].values())
                 sample.time += datetime.timedelta(seconds=float(eval_result_data['timings']['MapMatcherNode::runBatchMode total']['total']))
     
-    # Check if there any statistics.pkl were found!
-    if len(sample.translation_errors) == 0:
-        raise IOError("No statistics.pkl files were found in the toplevel_directory's filetree.")
-
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):
         for file_name in files:
             if file_name == "params.yaml":
