@@ -50,7 +50,7 @@ class PerformanceMeasure(object):
         """
         Plots the Performance with continuous input values from x_min to x_max.
         """
-        fig, ax = self._prepare_plot(x_min, x_max, resolution)
+        fig, ax = self._prepare_plot(x_min, x_max)
         fig.savefig(path)
         fig.clf()
 
@@ -110,6 +110,7 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
     def __call__(self, sample):
         if isinstance(sample, np.ndarray) or isinstance(sample, float): # Special case for plotting the function
             return super(LogisticTranslationErrorMeasure, self).__call__(sample)
+
         # Put each translation error through the Logistic function (super().__call__)
         match_errors = [super(LogisticTranslationErrorMeasure, self).__call__(err_t) for err_t in sample.translation_errors]
         # Sum them up and normalize with the number of matches

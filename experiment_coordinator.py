@@ -91,21 +91,31 @@ class ExperimentCoordinator(object):
 
         Contains data from all available samples of the current EvaluationFunction.
         Shows all raw datapoints as well as the calculated metric.
+
+        Only supports visualizing one dimension of optimized parameters.
         """
+        if len(self.eval_function.optimization_bounds) > 1:
+            raise RuntimeError("Can't visualize metric when more than one parameter is optimized.", self.eval_function.optimization_bounds)
+
         # Setup the figure and its axes
         fig, (nr_matches_axis, translation_err_axis, rotation_err_axis) = plt.subplots(3, sharex=True, sharey=False)
         #fig.subplots_adjust(hspace=0)
         plt.setp([a.get_xticklabels() for a in fig.axes[:-1]], visible=False)
         metric_axes = [nr_matches_axis.twinx(), translation_err_axis.twinx(), rotation_err_axis.twinx()]
-        rotation_err_axis.set_xlabel("CSHOT descriptor radius")
+        # set x and y lim for metric axes; Will also imply same x_lim for other axes.
+        for ax in metric_axes:
+            ax.set_xlim(next(iter(self.eval_function.optimization_bounds.values())))
+            ax.set_ylim(0,1)
         nr_matches_axis.set_ylabel("Number of Matches")
         nr_matches_axis.yaxis.label.set_color('red')
         nr_matches_axis.tick_params(axis='y', colors='red')
         translation_err_axis.set_ylabel(u"$Err_{translation}$ [m]")
+        translation_err_axis.set_ylim(self.performance_measure.min_relevant_error, self.performance_measure.max_relevant_error)
         translation_err_axis.yaxis.label.set_color('m')
         translation_err_axis.tick_params(axis='y', colors='m')
         rotation_err_axis.set_ylabel(u"$Err_{rotation}$ [deg]")
         rotation_err_axis.yaxis.label.set_color('c')
+        rotation_err_axis.set_xlabel(list(self.eval_function.optimization_bounds)[0])
         rotation_err_axis.tick_params(axis='y', colors='c')
 
         # Plot all evaluation function samples we have

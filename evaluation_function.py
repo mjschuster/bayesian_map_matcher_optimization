@@ -111,6 +111,16 @@ class EvaluationFunction(object):
         # Calculate the metric
         return self.performance_measure(sample)
 
+    @property
+    def optimization_bounds(self):
+        """
+        Returns a dict that maps "optimized parameter name" to a bounds-tuple (min, max).
+        """
+        bounds_dict = {}
+        for name, defs in self._optimization_definitions.items():
+            bounds_dict[name] = (defs['min_bound'], defs['max_bound'])
+        return bounds_dict
+
     def __iter__(self):
         """
         Iterator for getting all available samples from the database, which define this EvaluationFunction.
