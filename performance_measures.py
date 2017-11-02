@@ -7,6 +7,19 @@ Only classes that end with Measure (not *Function classes) take a Sample as __ca
 import numpy as np
 import matplotlib.pyplot as plt
 
+def rotation_to_translation_error(rotation_error, submap_size):
+    """
+    Turns a rotation error into a translation error by looking at the upper bound of translation errors that
+    are caused by that rotation error.
+    For this, the submap size is used, which should be the distance to the submap's point farthest from the origin.
+    Returns a list of translation errors if a list of rotation errors were given.
+    Otherwise, a single value will be returned. (behaves just like other numpy functions)
+    :params rotation_error: The rotation error or list of rotation errors in degrees.
+    :params submap_size: The submap's size in the same unit as your translation errors.
+    """
+    rotation_error_rad = np.deg2rad(rotation_error)
+    return 2*submap_size * np.sin(rotation_error_rad/2)
+
 class PerformanceMeasure(object):
     """
     Contains some common methods used in all PerformanceMeasures.
@@ -16,7 +29,7 @@ class PerformanceMeasure(object):
     And to allow isinstance tests with the PerformanceMeasure type.
     """
 
-    AVAILABLE_TYPES = ['LogisticTranslationErrorMeasure']
+    AVAILABLE_TYPES = ['LogisticTranslationErrorMeasure', 'LogisticMaximumErrorMeasure', 'MixerMeasure', 'NrMatchesMeasure']
 
     def __init__(self):
         """
@@ -58,6 +71,14 @@ class PerformanceMeasure(object):
     def from_dict(cls, measure_dict):
         if measure_dict['type'] == cls.AVAILABLE_TYPES[0]: # LogisticTranslationErrorMeasure
             return LogisticTranslationErrorMeasure(max_relevant_error=measure_dict['max_relevant_error'])
+        elif measure_dict['type'] == cls.AVAILABLE_TYPES[1]: # LogisticMaximumErrorMeasure
+            return LogisticMaximumErrorMeasure(submap_size=measure_dict['submap_size'], max_relevant_error=measure_dict['max_relevant_error'])
+        elif measure_dict['type'] == cls.AVAILABLE_TYPES[2]: # MixerMeasure
+            measure_a = PerformanceMeasure.from_dict(measure_dict['measure_a'])
+            measure_b = PerformanceMeasure.from_dict(measure_dict['measure_b'])
+            return MixerMeasure(measure_a, measure_b, measure_dict['weight_b'])
+        elif measure_dict['type'] == cls.AVAILABLE_TYPES[3]: # NrMatchesMeasure
+            return NrMatchesMeasure(measure_dict['expected_nr_matches'])
         else:
             raise ValueError("Type not available", cls.AVAILABLE_TYPES)
 
@@ -89,7 +110,6 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
     """
     PerformanceMeasure that uses the logistic function to map possible translation errors between 0 and 1.
     High translation errors will be mapped close to 0, low ones close to 1.
-    Therefor, the goal should be to maximize this measure.
     """
     def __init__(self, max_relevant_error, min_relevant_error=0):
         """
@@ -114,7 +134,10 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         # Put each translation error through the Logistic function (super().__call__)
         match_errors = [super(LogisticTranslationErrorMeasure, self).__call__(err_t) for err_t in sample.translation_errors]
         # Sum them up and normalize with the number of matches
-        return sum(match_errors, 0) / sample.nr_matches
+        if not sample.nr_matches == 0:
+            return sum(match_errors, 0) / sample.nr_matches
+        else:
+            return 0
 
     def plot(self, path, x_min, x_max):
         fig, ax = self._prepare_plot(x_min, x_max)
@@ -123,9 +146,98 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
                    [self(self.min_relevant_error), self(self.max_relevant_error)],
                    c='r', label=u"${(" + str(round(self.min_relevant_error, 2)) + u"," + str(round(self(self.min_relevant_error), 2)) + "),(" + str(round(self.max_relevant_error, 2)) + u"," + str(round(self(self.max_relevant_error), 2)) + u")}$")
         ax.legend(loc='lower left')
+        ax.set_ylim(0,1)
         fig.savefig(path)
         fig.clf()
 
+class MixerMeasure(PerformanceMeasure):
+    """
+    Mixes two other measures.
+    """
+
+    def __init__(self, measure_a, measure_b, weight_b):
+        """
+        Initialize with setting parameters
+        :param measure_a: Performance measure a
+        :param measure_b: Performance measure b
+        :param weight_b: The weight of measure b. The measure_a's weight will be 1-weight_b.
+        """
+        super().__init__()
+        self.measure_a = measure_a
+        self.measure_b = measure_b
+        self.weight_b = weight_b
+
+    def __call__(self, sample):
+        return (1 - self.weight_b) * self.measure_a(sample) + self.weight_b * self.measure_b(sample)
+
+class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
+    """
+    PerformanceMeasure that uses the logistic function to map possible errors between 0 and 1.
+    High errors will be mapped close to 0, low ones close to 1.
+    This PerformanceMeasure considers both translation and rotation errors.
+    Rotation errors will be turned into translation errors:
+        By considering the maximum translation error that could've been caused by the rotation
+        around the submap's origin with a given distance to the point farthest away from the origin. (submap size)
+    """
+    def __init__(self, submap_size, max_relevant_error, min_relevant_error=0):
+        """
+        Initialize with setting parameters
+        :param submap_size: The size of each submap, used for turning rotation errors into translation errors.
+        :param max_relevant_error: The maximum translation error that should still be distinguishable from higher errors. (i.e. mapped not too close to 0)
+        :param min_relevant_error: Same for the minimum, defaults to 0.
+        """
+        self.submap_size = submap_size
+        super().__init__(max_relevant_error, min_relevant_error)
+
+    def __call__(self, sample):
+        if isinstance(sample, np.ndarray) or isinstance(sample, float): # Special case for plotting the function
+            return super(LogisticMaximumErrorMeasure, self).__call__(sample)
+
+        # Iterate over rotation and translation error lists simultaneously and chose the biggest errors
+        considered_errors = [max(err_t, err_r) for err_t, err_r in
+                             zip(sample.translation_errors,
+                                 rotation_to_translation_error(sample.rotation_errors, self.submap_size))]
+        match_errors = [super(LogisticMaximumErrorMeasure, self).__call__(err) for err in considered_errors]
+        # Sum them up and normalize with the number of matches
+        if not sample.nr_matches == 0:
+            return sum(match_errors, 0) / sample.nr_matches
+        else:
+            return 0
+
+class NrMatchesMeasure(PerformanceMeasure):
+    """
+    Uses the function x / (a + x) to map the number of matches to [0,1).
+    More matches means this measure gets closer to 1.
+    """
+    def __init__(self, expected_nr_matches):
+        """
+        :param expected_nr_matches: A number of matches which is already considered quite good for the dataset
+                                    Will be used to calculate a, so that the function passes point (a, 0.98)
+        """
+        self.expected_nr_matches = int(expected_nr_matches)
+        # Can be used to tune how much space the measure has left for matches above the expected_nr_matches threshold
+        self.expected_nr_matches_y_value = 0.75
+        self.a = self.expected_nr_matches * (1 - self.expected_nr_matches_y_value) / self.expected_nr_matches_y_value
+
+    def __str__(self):
+        return u"$\\frac{x}{" + str(round(self.a, 3)) + u" + x}$"
+
+    def __call__(self, sample):
+        if isinstance(sample, np.ndarray) or isinstance(sample, int): # Special case for plotting the function
+            return sample / (self.a + sample)
+
+        return sample.nr_matches / (self.a + sample.nr_matches)
+
+    def plot(self, path, x_min, x_max):
+        fig, ax = self._prepare_plot(x_min, x_max)
+        ax.set_xlabel("x: Number of Matches")
+        ax.scatter([self.expected_nr_matches],
+                   [self(self.expected_nr_matches)],
+                   c='r', label=u"${(" + str(round(self.expected_nr_matches, 2)) + u"," + str(round(self(self.expected_nr_matches), 2)) + ")}$")
+        ax.legend(loc='lower left')
+        ax.set_ylim(0,1)
+        fig.savefig(path)
+        fig.clf()
 
 class SinusTestFunction(PerformanceMeasure):
     """
@@ -162,6 +274,10 @@ if __name__ == '__main__': # don't execute when module is imported
         elif args.type == 'logistic_tra':
             print("Logistic translation measure with max_relevant_error =", args.params[0])
             l = LogisticTranslationErrorMeasure(max_relevant_error = args.params[0])
+            l.plot(args.path, args.min, args.max)
+        elif args.type == 'nr_matches':
+            print("Measure for nr matches with expected nr matches =", args.params[0])
+            l = NrMatchesMeasure(args.params[0])
             l.plot(args.path, args.min, args.max)
         else:
             print("unknown type")

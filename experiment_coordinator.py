@@ -110,7 +110,6 @@ class ExperimentCoordinator(object):
         nr_matches_axis.yaxis.label.set_color('red')
         nr_matches_axis.tick_params(axis='y', colors='red')
         translation_err_axis.set_ylabel(u"$Err_{translation}$ [m]")
-        translation_err_axis.set_ylim(self.performance_measure.min_relevant_error, self.performance_measure.max_relevant_error)
         translation_err_axis.yaxis.label.set_color('m')
         translation_err_axis.tick_params(axis='y', colors='m')
         rotation_err_axis.set_ylabel(u"$Err_{rotation}$ [deg]")
@@ -191,8 +190,12 @@ class ExperimentCoordinator(object):
                 y_metric.append(y_dict['metric'])
                 sample = y_dict['sample']
                 y_nr_matches.append(sample.nr_matches)
-                y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
-                y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
+                if not sample.nr_matches == 0:
+                    y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
+                    y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
+                else:
+                    y_translation_err.append(0)
+                    y_rotation_err.append(0)
                 break # Currently only support 1D x-axis
         # Sort the lists before plotting
         temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
