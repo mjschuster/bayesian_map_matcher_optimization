@@ -54,7 +54,7 @@ class EvaluationFunction(object):
 
         self.performance_measure = performance_measure
         self._sample_db = sample_db
-        self._default_rosparams = default_rosparams
+        self.default_rosparams = default_rosparams
         self._optimization_definitions = optimization_definitions
         self._rounding_decimal_places = rounding_decimal_places
 
@@ -95,16 +95,16 @@ class EvaluationFunction(object):
             # ...also cast their type to the type in the default rosparams dict. Otherwise, we may serialize
             # some high-precision numpy float class instead of having a built-in float value on the yaml, that
             # rosparams can actually read. Sadl, we'll lose some precision through that.
-            if type(self._default_rosparams[p_name]) != type(p_value):
-                print("\tWarning, casting parameter type", type(p_value), "of", p_name, "to", type(self._default_rosparams[p_name]))
-                optimized_rosparams[p_name] = type(self._default_rosparams[p_name])(p_value)
+            if type(self.default_rosparams[p_name]) != type(p_value):
+                print("\tWarning, casting parameter type", type(p_value), "of", p_name, "to", type(self.default_rosparams[p_name]))
+                optimized_rosparams[p_name] = type(self.default_rosparams[p_name])(p_value)
             if self._rounding_decimal_places and isinstance(p_value, float):
                 rounded_p_value = round(optimized_rosparams[p_name], self._rounding_decimal_places)
                 print("\tWarning, rounding float value", p_name, ":", p_value, "->", rounded_p_value)
                 optimized_rosparams[p_name] = rounded_p_value
 
         # Create the full set of parameters by updating the default parameters with the optimized parameters.
-        complete_rosparams = self._default_rosparams.copy()
+        complete_rosparams = self.default_rosparams.copy()
         complete_rosparams.update(optimized_rosparams)
         # Get the sample from the db (this call blocks until the sample is generated, if it isn't in the db)
         sample = self._sample_db[complete_rosparams]
@@ -157,7 +157,7 @@ class EvaluationFunction(object):
                 continue # Move on to the next parameter
             else: # If it's not optimized
                 # check whether it has the right value (equal to the one set in default_rosparams)
-                if not value == self._default_rosparams[param]:
+                if not value == self.default_rosparams[param]:
                     return False # return False immediately
 
         if not nr_of_optimized_params_found == len(self._optimization_definitions):

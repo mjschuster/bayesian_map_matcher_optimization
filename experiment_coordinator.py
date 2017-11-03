@@ -18,9 +18,11 @@ from bayes_opt import BayesianOptimization
 class ExperimentCoordinator(object):
     """
     Can be thought of as the 'toplevel' class for this repo.
-    
     Will bring together the different parts of the system and manage the information flow
     between them.
+    
+    Much code concerns reading / fixing paths, putting together the right initialization params for the used modules (mostly in __init__).
+    Another big part is code for plotting results.
     """
 
     def __init__(self, params_dict, relpath_root):
@@ -85,7 +87,20 @@ class ExperimentCoordinator(object):
                 init_dict[p_name].append(p_value)
         self.optimizer.explore(init_dict)
 
-    def plot_visualize_metric(self, plot_name):
+    def _setup_metric_axis(self, axis, param_name=None):
+        """
+        Helper method which sets up common properties of an axis object.
+        """
+        if param_name is None:
+            param_name = list(self.eval_function.optimization_bounds)[0] # Get the first key
+        axis.set_xlim(self.eval_function.optimization_bounds[param_name])
+        axis.set_ylim(0,1)
+        axis.set_xlabel(param_name)
+        axis.set_ylabel(str(self.performance_measure))
+        axis.yaxis.label.set_color('blue')
+        axis.tick_params(axis='y', colors='blue')
+
+    def plot_visualize_metric1d(self, plot_name):
         """
         Saves a plot to visualize the metric's behaviour.
 
@@ -103,9 +118,6 @@ class ExperimentCoordinator(object):
         plt.setp([a.get_xticklabels() for a in fig.axes[:-1]], visible=False)
         metric_axes = [nr_matches_axis.twinx(), translation_err_axis.twinx(), rotation_err_axis.twinx()]
         # set x and y lim for metric axes; Will also imply same x_lim for other axes.
-        for ax in metric_axes:
-            ax.set_xlim(next(iter(self.eval_function.optimization_bounds.values())))
-            ax.set_ylim(0,1)
         nr_matches_axis.set_ylabel("Number of Matches")
         nr_matches_axis.yaxis.label.set_color('red')
         nr_matches_axis.tick_params(axis='y', colors='red')
@@ -114,69 +126,7 @@ class ExperimentCoordinator(object):
         translation_err_axis.tick_params(axis='y', colors='m')
         rotation_err_axis.set_ylabel(u"$Err_{rotation}$ [deg]")
         rotation_err_axis.yaxis.label.set_color('c')
-        rotation_err_axis.set_xlabel(list(self.eval_function.optimization_bounds)[0])
         rotation_err_axis.tick_params(axis='y', colors='c')
-
-        # Plot all evaluation function samples we have
-        optimized_param_values = []
-        y_metric = []
-        y_nr_matches = []
-        y_rotation_err = []
-        y_translation_err = []
-        for optimized_params_dict, y_dict in self.eval_function:
-            for param_name in optimized_params_dict.keys():
-                optimized_param_values.append(optimized_params_dict[param_name]['value'])
-                y_metric.append(y_dict['metric'])
-                sample = y_dict['sample']
-                y_nr_matches.append(sample.nr_matches)
-                y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
-                y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
-                break # Currently only support 1D x-axis
-        # Sort the lists before plotting
-        temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
-        optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
-        for metric_axis in metric_axes:
-            metric_axis.set_ylabel(str(self.performance_measure))
-            metric_axis.yaxis.label.set_color('blue')
-            metric_axis.tick_params(axis='y', colors='blue')
-            metric_axis.plot(optimized_param_values, y_metric, 'b:')
-        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'r.')
-        translation_err_axis.plot(optimized_param_values, y_translation_err, 'm.')
-        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'c.')
-
-        # Save and close
-        path = os.path.join(self._params['plots_directory'], plot_name)
-        print("\tSaving metric plot to", path)
-        fig.savefig(path)
-        fig.clf()
-
-    def plot_gpr(self, plot_name):
-        """
-        Saves a plot of the GPR estimate to disk.
-
-        Visualizes the estimated function mean and 95% confidence area from the GPR.
-        Additionally shows the actual values for *all* available samples of the current EvaluationFunction.
-        """
-
-        # Setup the figure and its axes
-        fig, metric_axis = plt.subplots()
-        # Setup labels and colors
-        metric_axis.set_xlabel('CSHOT descriptor radius')
-        metric_axis.set_ylabel(str(self.eval_function.performance_measure))
-
-        # x-values for where to plot the predictions of the gaussian process
-        renderspace_x = np.atleast_2d(np.linspace(0, 1, 1000)).T
-        # Get mean and sigma from the gaussian process
-        y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
-        # Plot the observations given to the gaussian process
-        metric_axis.plot(self.optimizer.X.flatten(), self.optimizer.Y, 'b.', markersize=10, label=u'Observations')
-        # Plot the gp's prediction mean
-        metric_axis.plot(renderspace_x, y_pred, 'b-', label=u'Prediction')
-        # Plot the gp's prediction 'sigma-tube'
-        metric_axis.fill(np.concatenate([renderspace_x, renderspace_x[::-1]]),
-                 np.concatenate([y_pred - 1.9600 * sigma,
-                                (y_pred + 1.9600 * sigma)[::-1]]),
-                 alpha=.5, fc='b', ec='None', label='95% confidence interval')
 
         # Plot all evaluation function samples we have
         optimized_param_values = []
@@ -200,7 +150,61 @@ class ExperimentCoordinator(object):
         # Sort the lists before plotting
         temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
         optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
-        metric_axis.scatter(optimized_param_values, y_metric, c='r', label=u"All known samples")
+        for metric_axis in metric_axes:
+            self._setup_metric_axis(metric_axis)
+            metric_axis.plot(optimized_param_values, y_metric, 'b:')
+        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'r.')
+        translation_err_axis.plot(optimized_param_values, y_translation_err, 'm.')
+        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'c.')
+
+        # Save and close
+        path = os.path.join(self._params['plots_directory'], plot_name)
+        print("\tSaving metric plot to", path)
+        fig.savefig(path)
+        fig.clf()
+
+    def plot_gpr_single_param(self, plot_name, param_name):
+        """
+        Saves a plot of the GPR estimate to disk.
+        Visualizes the estimated function mean and 95% confidence area from the GPR.
+        Additionally shows the actual values for *all* available samples of the current EvaluationFunction.
+        """
+
+        # Setup the figure and its axes
+        fig, metric_axis = plt.subplots()
+        self._setup_metric_axis(metric_axis)
+
+        # x-values for where to plot the predictions of the gaussian process
+        bounds = self.eval_function.optimization_bounds[param_name]
+        renderspace_x = np.atleast_2d(np.linspace(bounds[0], bounds[1], 1000)).T
+        # Get mean and sigma from the gaussian process
+        y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
+        # Plot the observations given to the gaussian process
+        metric_axis.plot(self.optimizer.X.flatten(), self.optimizer.Y, 'b.', markersize=10, label=u'Observations')
+        # Plot the gp's prediction mean
+        metric_axis.plot(renderspace_x, y_pred, 'b-', label=u'Prediction')
+        # Plot the gp's prediction 'sigma-tube'
+        metric_axis.fill(np.concatenate([renderspace_x, renderspace_x[::-1]]),
+                 np.concatenate([y_pred - 1.9600 * sigma,
+                                (y_pred + 1.9600 * sigma)[::-1]]),
+                 alpha=.5, fc='b', ec='None', label='95% confidence interval')
+
+        # Plot all evaluation function samples we have
+        samples_x = []
+        samples_y = []
+        # Gather available x, y pairs in the above two variables
+        for optimized_params_dict, y_dict in self.eval_function:
+            # For each sample, check if it's usable:
+            usable = True
+            for optimized_param_name, param_dict in optimized_params_dict.items():
+                if not optimized_param_name == param_name: # only other parameters than the one to visualize can have values that makes a sample unusable, since we want to plot ALL values of "param_name"
+                    if not self.eval_function.default_rosparams[param_dict['rosparam_name']] == param_dict['value']:
+                        usable = False
+                        break
+            if usable:
+                samples_x.append(optimized_params_dict[optimized_param_name]['value'])
+                samples_y.append(y_dict['metric'])
+        metric_axis.scatter(samples_x, samples_y, c='r', label=u"All known samples")
         metric_axis.set_ylim(0, 1)
 
         metric_axis.legend(loc='lower right')
@@ -303,7 +307,7 @@ if __name__ == '__main__': # don't execute when module is imported
             sys.exit()
         if args.plot_metric:
             print("--> Mode: Plot Metric <--")
-            experiment_coordinator.plot_visualize_metric("metric_visualization.svg")
+            experiment_coordinator.plot_visualize_metric1d("metric_visualization.svg")
             sys.exit()
 
         print("--> Mode: Experiment <--")
@@ -311,7 +315,9 @@ if __name__ == '__main__': # don't execute when module is imported
         experiment_coordinator.initialize_optimizer()
         while True:
             experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
-            experiment_coordinator.plot_gpr(str(iteration).zfill(5) + "_iteration.svg")
+            for param_name, param_dict in experiment_parameters_dict['optimization_definitions'].items():
+                plot_name = param_name.replace(" ", "_") + "_" + str(iteration).zfill(5) + "_iteration.svg"
+                experiment_coordinator.plot_gpr_single_param(plot_name, param_name)
             iteration += 1
 
     # Execute cmdline interface
