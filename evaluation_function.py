@@ -12,7 +12,6 @@ The EvaluationFunction is the toplevel class for this repo. In it, "complete_ros
 It acts as the interface for the optimizer, which only knows about the "optimized_rosparams" (subset of "complete_rosparams").
 """
 
-import numpy as np
 import os
 import pickle
 
@@ -120,6 +119,24 @@ class EvaluationFunction(object):
         for name, defs in self._optimization_definitions.items():
             bounds_dict[name] = (defs['min_bound'], defs['max_bound'])
         return bounds_dict
+
+    def samples_filtered(self, fixed_params):
+        """
+        Iterator that yields only samples that satisfy all fixed_params definitions.
+
+        :param fixed_params: A dict that maps a subset of optimized rosparams to a desired value.
+        Returns samples in the same format as __iter__.
+        """
+        for X, Y in self:
+            # For each sample, check if it's usable:
+            usable = True
+            for optimized_param_name, param_dict in X.items():
+                if optimized_param_name in fixed_params: # For all fixed_params, check if the value is correct
+                    if not self.eval_function.default_rosparams[param_dict['rosparam_name']] == param_dict['value']:
+                        usable = False
+                        break
+            if usable:
+                yield X, Y
 
     def __iter__(self):
         """

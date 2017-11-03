@@ -100,7 +100,7 @@ class ExperimentCoordinator(object):
         axis.yaxis.label.set_color('blue')
         axis.tick_params(axis='y', colors='blue')
 
-    def plot_visualize_metric1d(self, plot_name):
+    def plot_visualize_metric1d(self, plot_name, param_name):
         """
         Saves a plot to visualize the metric's behaviour.
 
@@ -109,12 +109,8 @@ class ExperimentCoordinator(object):
 
         Only supports visualizing one dimension of optimized parameters.
         """
-        if len(self.eval_function.optimization_bounds) > 1:
-            raise RuntimeError("Can't visualize metric when more than one parameter is optimized.", self.eval_function.optimization_bounds)
-
         # Setup the figure and its axes
         fig, (nr_matches_axis, translation_err_axis, rotation_err_axis) = plt.subplots(3, sharex=True, sharey=False)
-        #fig.subplots_adjust(hspace=0)
         plt.setp([a.get_xticklabels() for a in fig.axes[:-1]], visible=False)
         metric_axes = [nr_matches_axis.twinx(), translation_err_axis.twinx(), rotation_err_axis.twinx()]
         # set x and y lim for metric axes; Will also imply same x_lim for other axes.
@@ -127,6 +123,7 @@ class ExperimentCoordinator(object):
         rotation_err_axis.set_ylabel(u"$Err_{rotation}$ [deg]")
         rotation_err_axis.yaxis.label.set_color('c')
         rotation_err_axis.tick_params(axis='y', colors='c')
+        rotation_err_axis.set_xlabel(param_name)
 
         # Plot all evaluation function samples we have
         optimized_param_values = []
@@ -134,24 +131,24 @@ class ExperimentCoordinator(object):
         y_nr_matches = []
         y_rotation_err = []
         y_translation_err = []
-        for optimized_params_dict, y_dict in self.eval_function:
-            for param_name in optimized_params_dict.keys():
-                optimized_param_values.append(optimized_params_dict[param_name]['value'])
-                y_metric.append(y_dict['metric'])
-                sample = y_dict['sample']
-                y_nr_matches.append(sample.nr_matches)
-                if not sample.nr_matches == 0:
-                    y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
-                    y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
-                else:
-                    y_translation_err.append(0)
-                    y_rotation_err.append(0)
-                break # Currently only support 1D x-axis
+        fixed_params = self.eval_function.default_rosparams.copy()
+        del(fixed_params[self.eval_function._optimization_definitions[param_name]['rosparam_name']])
+        for optimized_params_dict, y_dict in self.eval_function.samples_filtered(fixed_params):
+            optimized_param_values.append(optimized_params_dict[param_name]['value'])
+            y_metric.append(y_dict['metric'])
+            sample = y_dict['sample']
+            y_nr_matches.append(sample.nr_matches)
+            if not sample.nr_matches == 0:
+                y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
+                y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
+            else:
+                y_translation_err.append(0)
+                y_rotation_err.append(0)
         # Sort the lists before plotting
         temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
         optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
         for metric_axis in metric_axes:
-            self._setup_metric_axis(metric_axis)
+            self._setup_metric_axis(metric_axis, param_name)
             metric_axis.plot(optimized_param_values, y_metric, 'b:')
         nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'r.')
         translation_err_axis.plot(optimized_param_values, y_translation_err, 'm.')
@@ -193,17 +190,11 @@ class ExperimentCoordinator(object):
         samples_x = []
         samples_y = []
         # Gather available x, y pairs in the above two variables
-        for optimized_params_dict, y_dict in self.eval_function:
-            # For each sample, check if it's usable:
-            usable = True
-            for optimized_param_name, param_dict in optimized_params_dict.items():
-                if not optimized_param_name == param_name: # only other parameters than the one to visualize can have values that makes a sample unusable, since we want to plot ALL values of "param_name"
-                    if not self.eval_function.default_rosparams[param_dict['rosparam_name']] == param_dict['value']:
-                        usable = False
-                        break
-            if usable:
-                samples_x.append(optimized_params_dict[optimized_param_name]['value'])
-                samples_y.append(y_dict['metric'])
+        fixed_params = self.eval_function.default_rosparams.copy()
+        del(fixed_params[self.eval_function._optimization_definitions[param_name]['rosparam_name']])
+        for optimized_params_dict, y_dict in self.eval_function.samples_filtered(fixed_params):
+            samples_x.append(optimized_params_dict[param_name]['value'])
+            samples_y.append(y_dict['metric'])
         metric_axis.scatter(samples_x, samples_y, c='r', label=u"All known samples")
         metric_axis.set_ylim(0, 1)
 
@@ -265,9 +256,10 @@ if __name__ == '__main__': # don't execute when module is imported
                             dest='remove_samples', nargs='+', help=rm_arg_help)
         parser.add_argument('--add-samples', '-a',
                             dest='add_samples', nargs='+', help=add_arg_help)
-        parser.add_argument('--plot-metric',
-                            dest='plot_metric', action='store_true',
-                            help="Plots a visualization of the metric's behaviour.")
+        parser.add_argument('--plot-metric', '-p',
+                            dest='plot_metric', nargs='+',
+                            help="Plots a 1D visualization of the metric's behaviour when changing the given parameter." +\
+                                 " (parameter name has to fit the optimization definitions in the yaml file)")
         args = parser.parse_args()
 
         # Load the parameters from the yaml into a dict
@@ -307,7 +299,9 @@ if __name__ == '__main__': # don't execute when module is imported
             sys.exit()
         if args.plot_metric:
             print("--> Mode: Plot Metric <--")
-            experiment_coordinator.plot_visualize_metric1d("metric_visualization.svg")
+            param_name = ' '.join(args.plot_metric)
+            print("\tFor parameter '", param_name, "'", sep="")
+            experiment_coordinator.plot_visualize_metric1d("metric_visualization.svg", param_name)
             sys.exit()
 
         print("--> Mode: Experiment <--")
