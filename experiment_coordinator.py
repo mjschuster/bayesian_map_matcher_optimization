@@ -2,6 +2,7 @@
 
 # Local imports
 import evaluation_function
+from performance_measures import PerformanceMeasure
 
 # Foreign packages
 import matplotlib.pyplot as plt
@@ -10,19 +11,18 @@ import os
 import rosparam
 import yaml
 import sys
-
-from performance_measures import PerformanceMeasure
-
 from bayes_opt import BayesianOptimization
 
 class ExperimentCoordinator(object):
     """
     Can be thought of as the 'toplevel' class for this repo.
-    Will bring together the different parts of the system and manage the information flow
-    between them.
+    Will bring together the different parts of the system and manage the information flow between them.
     
     Much code concerns reading / fixing paths, putting together the right initialization params for the used modules (mostly in __init__).
     Another big part is code for plotting results.
+
+    For the plotting and all user-interface-related manners, the parameters will be described by their "display_name", i.e. their key in the experiment's yaml file.
+    The code in the evaluation_function module doesn't know about the display_name and only uses the rosparam_name.
     """
 
     def __init__(self, params_dict, relpath_root):
@@ -54,26 +54,25 @@ class ExperimentCoordinator(object):
         # Setup the evaluation function object
         ###########
         print("Setting up EvaluationFunction...")
-        optimization_definitions = self._params['optimization_definitions']
+        self.optimization_defs = self._params['optimization_definitions']
         default_rosparams = rosparam.load_file(rosparams_path)[0][0]
+        opt_bounds = dict()
+        for p_name, p_defs in self.optimization_defs.items():
+            opt_bounds[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
+            print("\tOptimizing parameter '", p_name, "' as rosparam '", p_defs['rosparam_name'],\
+                  "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
         self.performance_measure = PerformanceMeasure.from_dict(self._params['performance_measure'])
         self.eval_function = evaluation_function.EvaluationFunction(self.sample_db, default_rosparams,
-                                                                    optimization_definitions,
+                                                                    opt_bounds,
                                                                     self.performance_measure,
                                                                     self._params['rounding_decimal_places'])
         ###########
         # Create an BayesianOptimization object, that contains the GPR logic.
         # Will supply us with new param-samples and will try to model the map matcher metric function.
         ###########
-        # Put the information about which parameters to optimize in a form bayes_opt likes:
         print("Setting up Optimizer...")
-        optimized_rosparams = dict()
-        for p_name, p_defs in self._params['optimization_definitions'].items():
-            optimized_rosparams[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
-            print("\tOptimizing parameter '", p_name, "' as rosparam '", p_defs['rosparam_name'],\
-                  "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
         # Create the optimizer object
-        self.optimizer = BayesianOptimization(self.eval_function.evaluate, optimized_rosparams)
+        self.optimizer = BayesianOptimization(self.eval_function.evaluate, opt_bounds)
 
     def initialize_optimizer(self):
         # Get the initialization samples from the EvaluationFunction
@@ -93,14 +92,16 @@ class ExperimentCoordinator(object):
         """
         if param_name is None:
             param_name = list(self.eval_function.optimization_bounds)[0] # Get the first key
-        axis.set_xlim(self.eval_function.optimization_bounds[param_name])
+        # Get the rosparam name of the parameter described by param_name
+        # (which is the 'display name' given in the experiment's yaml file)
+        axis.set_xlim(self.eval_function.optimization_bounds[self._to_rosparam(param_name)])
         axis.set_ylim(0,1)
         axis.set_xlabel(param_name)
         axis.set_ylabel(str(self.performance_measure))
         axis.yaxis.label.set_color('blue')
         axis.tick_params(axis='y', colors='blue')
 
-    def plot_visualize_metric1d(self, plot_name, param_name):
+    def plot_metric_visualization1d(self, plot_name, param_name):
         """
         Saves a plot to visualize the metric's behaviour.
 
@@ -132,11 +133,10 @@ class ExperimentCoordinator(object):
         y_rotation_err = []
         y_translation_err = []
         fixed_params = self.eval_function.default_rosparams.copy()
-        del(fixed_params[self.eval_function._optimization_definitions[param_name]['rosparam_name']])
-        for optimized_params_dict, y_dict in self.eval_function.samples_filtered(fixed_params):
-            optimized_param_values.append(optimized_params_dict[param_name]['value'])
-            y_metric.append(y_dict['metric'])
-            sample = y_dict['sample']
+        del(fixed_params[self._to_rosparam(param_name)])
+        for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
+            optimized_param_values.append(params_dict[self._to_rosparam(param_name)])
+            y_metric.append(metric_value)
             y_nr_matches.append(sample.nr_matches)
             if not sample.nr_matches == 0:
                 y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
@@ -191,10 +191,10 @@ class ExperimentCoordinator(object):
         samples_y = []
         # Gather available x, y pairs in the above two variables
         fixed_params = self.eval_function.default_rosparams.copy()
-        del(fixed_params[self.eval_function._optimization_definitions[param_name]['rosparam_name']])
-        for optimized_params_dict, y_dict in self.eval_function.samples_filtered(fixed_params):
-            samples_x.append(optimized_params_dict[param_name]['value'])
-            samples_y.append(y_dict['metric'])
+        del(fixed_params[self._to_rosparam(param_name)])
+        for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
+            samples_x.append(params_dict[param_name])
+            samples_y.append(metric_value)
         metric_axis.scatter(samples_x, samples_y, c='r', label=u"All known samples")
         metric_axis.set_ylim(0, 1)
 
@@ -205,6 +205,13 @@ class ExperimentCoordinator(object):
         print("\tSaving gpr plot to", path)
         fig.savefig(path)
         fig.clf()
+
+    def _to_rosparam(self, display_name):
+        """
+        Takes a "display_name" (i.e. the name for a parameter as defined in the experiment's yaml file)
+        and returns its respective rosparam_name
+        """
+        return self.optimization_defs[display_name]['rosparam_name']
 
     def _resolve_relative_path(self, path):
         """
@@ -301,7 +308,7 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Mode: Plot Metric <--")
             param_name = ' '.join(args.plot_metric)
             print("\tFor parameter '", param_name, "'", sep="")
-            experiment_coordinator.plot_visualize_metric1d("metric_visualization.svg", param_name)
+            experiment_coordinator.plot_metric_visualization1d("metric_visualization.svg", param_name)
             sys.exit()
 
         print("--> Mode: Experiment <--")

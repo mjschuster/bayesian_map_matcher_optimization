@@ -5,10 +5,10 @@ A Sample is defined by its full set of rosparams ("complete_rosparams"), since t
 the map matcher.
 A Sample contains resulting data from the map matcher evaluation with its complete_rosparams.
 
-The Samples are managed by the SampleDatabase, which uses a hashing to quickly find the Sample for a given complete_rosparams.
-If it doesn't exist, another Sample will be generated using the INTERFACE_MODULE. (this is where you can define some method for generating Sample data for your specific map matcher implementation)
+The Samples are managed by the SampleDatabase, which uses a hashing to quickly find the Sample for a given complete_rosparams set.
+If it doesn't exist, a new Sample will be generated using the INTERFACE_MODULE. (this is where you can define some method for generating Sample data for your specific map matcher implementation)
 
-The EvaluationFunction is the toplevel class for this repo. In it, "complete_rosparams" and "optimized_rosparams" are differentiated.
+The EvaluationFunction differentiates "complete_rosparams" and "optimized_rosparams".
 It acts as the interface for the optimizer, which only knows about the "optimized_rosparams" (subset of "complete_rosparams").
 """
 
@@ -32,15 +32,15 @@ class EvaluationFunction(object):
     This should reduce the time subsequent experiments will require, after a bunch of samples have already been generated.
     """
 
-    def __init__(self, sample_db, default_rosparams, optimization_definitions, performance_measure, rounding_decimal_places=0):
+    def __init__(self, sample_db, default_rosparams, optimization_bounds, performance_measure, rounding_decimal_places=0):
         """
         Creates an EvaluationFunction object.
         
         :param sample_db: A sample database object.
         :param default_rosparams: A dict that contains all rosparams required for running the map matcher
                                   with the default values.
-        :param optimization_definitions: A dict that contains the definitions which rosparams which are beeing optimized in this experiment and within which bounds.
-                                         Expects a dict that contains one or multiple entires, each containing rosparam_name, min_bound and max_bound.
+        :param optimization_bounds: A dict that contains the rosparam name of each rosparams to be optimized.
+                                    The dict's values are (min, max)-tuples for the optimization bounds of the respective rosparam.
         :param performance_measure: An PerformanceMeasure object
                             Some metrics may terminate the experiment, if your Sample instances don't contain the necessary data.
         :param rounding_decimal_places: The number of decimal places to which parameters of type float should be rounded to.
@@ -54,7 +54,7 @@ class EvaluationFunction(object):
         self.performance_measure = performance_measure
         self._sample_db = sample_db
         self.default_rosparams = default_rosparams
-        self._optimization_definitions = optimization_definitions
+        self.optimization_bounds = optimization_bounds
         self._rounding_decimal_places = rounding_decimal_places
 
     def evaluate(self, **optimized_rosparams):
@@ -75,21 +75,21 @@ class EvaluationFunction(object):
         print("Evaluating function at", optimized_rosparams.items())
 
         # Error handling
-        # Iterate over the optimization definitions and check if the current request doesn't violate them
-        for p_name, p_dict in self._optimization_definitions.items():
-            if not p_dict['rosparam_name'] in optimized_rosparams:
-                raise ValueError(p_dict['rosparam_name'] + " should get optimized, but wasn't in given dict of optimized parameters.", optimized_rosparams)
-            p_value = optimized_rosparams[p_dict['rosparam_name']]
-            if p_value > p_dict['max_bound']:
-                raise ValueError(p_dict['rosparam_name'] + " value (" + str(p_value) + ") is over max bound (" +\
-                                 str(p_dict['max_bound']) + ").")
-            if p_value < p_dict['min_bound']:
-                raise ValueError(p_dict['rosparam_name'] + " value (" + str(p_value) + ") is under min bound (" +\
-                                 str(p_dict['min_bound']) + ").")
+        # Iterate over the optimization bounds and check if the current request doesn't violate them
+        for rosparam_name, bounds in self.optimization_bounds.items():
+            if not rosparam_name in optimized_rosparams:
+                raise ValueError(rosparam_name + " should get optimized, but wasn't in given dict of optimized parameters.", optimized_rosparams)
+            p_value = optimized_rosparams[rosparam_name]
+            if p_value > bounds[1]: # max bound
+                raise ValueError(rosparam_name + " value (" + str(p_value) + ") is over max bound (" +\
+                                 str(bounds[1]) + ").")
+            if p_value < bounds[0]: # min bound
+                raise ValueError(rosparam_name + " value (" + str(p_value) + ") is under min bound (" +\
+                                 str(bounds[0]) + ").")
         # Iterate over the current request...
         for p_name, p_value in optimized_rosparams.items():
             # ...check if there are parameters in there, that shouldn't be optimized.
-            if not p_name in [opt_param['rosparam_name'] for opt_param in self._optimization_definitions.values()]:
+            if not p_name in self.optimization_bounds.keys():
                 raise ValueError(str(p_name) + " shouldn't get optimized, but was in given dict of optimized parameters.")
             # ...also cast their type to the type in the default rosparams dict. Otherwise, we may serialize
             # some high-precision numpy float class instead of having a built-in float value on the yaml, that
@@ -107,18 +107,8 @@ class EvaluationFunction(object):
         complete_rosparams.update(optimized_rosparams)
         # Get the sample from the db (this call blocks until the sample is generated, if it isn't in the db)
         sample = self._sample_db[complete_rosparams]
-        # Calculate the metric
+        # Calculate and return the metric
         return self.performance_measure(sample)
-
-    @property
-    def optimization_bounds(self):
-        """
-        Returns a dict that maps "optimized parameter name" to a bounds-tuple (min, max).
-        """
-        bounds_dict = {}
-        for name, defs in self._optimization_definitions.items():
-            bounds_dict[name] = (defs['min_bound'], defs['max_bound'])
-        return bounds_dict
 
     def samples_filtered(self, fixed_params):
         """
@@ -127,39 +117,33 @@ class EvaluationFunction(object):
         :param fixed_params: A dict that maps a subset of optimized rosparams to a desired value.
         Returns samples in the same format as __iter__.
         """
-        for X, Y in self:
+        for x, y, s in self:
             # For each sample, check if it's usable:
             usable = True
-            for optimized_param_name, param_dict in X.items():
-                if optimized_param_name in fixed_params: # For all fixed_params, check if the value is correct
-                    if not self.eval_function.default_rosparams[param_dict['rosparam_name']] == param_dict['value']:
+            for p_name, p_value in x.items():
+                if p_name in fixed_params: # For all fixed_params, check if the value is correct
+                    if not self.default_rosparams[p_name] == p_value:
                         usable = False
                         break
             if usable:
-                yield X, Y
+                yield x, y, s
 
     def __iter__(self):
         """
-        Iterator for getting all available samples from the database, which define this EvaluationFunction.
+        Iterator for getting information from all available samples from the database, which define this EvaluationFunction.
 
-        This means only those Samples are yielded, which have parameter values matching the ones in default_rosparams.
+        This means only information from those Samples are yielded, which have parameter values matching the ones in default_rosparams.
         Only parameter values of currently optimized parameters are allowed to differ.
         The filtering is done in the _defined_by function.
         
-        Returns samples as a tuple (X, Y), with X: A dict of the optimized_rosparams; Contains the param's 'value'
-                                                                                      and its 'rosparam_name'.
-                                         , and with Y: A dict with the current metric's value at 'metric' and
-                                                       the Sample object itself at 'sample'.
+        Yields tuples (x, y, s), with
+            x: A dict of the complete rosparams that were used to create that sample.
+            y: The sample's value as given by the current performance measure.
+            s: The sample itself, in case other information needs to be extracted.
         """
         for sample in self._sample_db:
             if self._defined_by(sample.parameters):
-                X = dict()
-                for name, defs in self._optimization_definitions.items():
-                    X[name] = {'rosparam_name': defs['rosparam_name'],
-                               'value': sample.parameters[defs['rosparam_name']]}
-                Y = {'metric': self.performance_measure(sample),
-                     'sample': sample}
-                yield (X, Y)
+                yield sample.parameters, self.performance_measure(sample), sample
 
     def _defined_by(self, complete_rosparams):
         """
@@ -169,7 +153,7 @@ class EvaluationFunction(object):
         nr_of_optimized_params_found = 0
         for param, value in complete_rosparams.items():
             # Check if the current param is optimized
-            if param in [d['rosparam_name'] for d in self._optimization_definitions.values()]:
+            if param in self.optimization_bounds.keys():
                 nr_of_optimized_params_found += 1
                 continue # Move on to the next parameter
             else: # If it's not optimized
@@ -177,8 +161,8 @@ class EvaluationFunction(object):
                 if not value == self.default_rosparams[param]:
                     return False # return False immediately
 
-        if not nr_of_optimized_params_found == len(self._optimization_definitions):
-            raise LookupError("There are parameters in the optimization_definitions, which aren't in the sample's complete rosparams.", str(self._sample_db[complete_rosparams]))
+        if not nr_of_optimized_params_found == len(self.optimization_bounds):
+            raise LookupError("There are parameters in the optimization_bounds, which aren't in the sample's complete rosparams.", str(self._sample_db[complete_rosparams]))
 
         return True
 
