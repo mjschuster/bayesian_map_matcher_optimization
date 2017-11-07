@@ -86,17 +86,16 @@ class ExperimentCoordinator(object):
                 init_dict[p_name].append(p_value)
         self.optimizer.explore(init_dict)
 
-    def _setup_metric_axis(self, axis, param_name=None):
+    def _setup_metric_axis(self, axis, param_display_name):
         """
         Helper method which sets up common properties of an axis object.
+
+        :param axis: The axis object that needs to be set up
+        :param param_display_name: The display name of the parameter, as given in the experiment's yaml file.
         """
-        if param_name is None:
-            param_name = list(self.eval_function.optimization_bounds)[0] # Get the first key
-        # Get the rosparam name of the parameter described by param_name
-        # (which is the 'display name' given in the experiment's yaml file)
-        axis.set_xlim(self.eval_function.optimization_bounds[self._to_rosparam(param_name)])
+        axis.set_xlim(self.eval_function.optimization_bounds[self._to_rosparam(param_display_name)])
         axis.set_ylim(0,1)
-        axis.set_xlabel(param_name)
+        axis.set_xlabel(param_display_name)
         axis.set_ylabel(str(self.performance_measure))
         axis.yaxis.label.set_color('blue')
         axis.tick_params(axis='y', colors='blue')
@@ -169,22 +168,33 @@ class ExperimentCoordinator(object):
 
         # Setup the figure and its axes
         fig, metric_axis = plt.subplots()
-        self._setup_metric_axis(metric_axis)
+        self._setup_metric_axis(metric_axis, param_name)
 
-        # x-values for where to plot the predictions of the gaussian process
-        bounds = self.eval_function.optimization_bounds[param_name]
-        renderspace_x = np.atleast_2d(np.linspace(bounds[0], bounds[1], 1000)).T
+        # Create a list of fixed parameters
+        fixed_params = list(self.optimization_defs.keys())
+        fixed_params.remove(param_name)
+        resolution = 1000 # resolution for the prediction and its plotting (higher means better quality)
+        predictionspace = np.zeros((len(self.optimizer.keys), resolution))
+        for key in self.optimization_defs.keys():
+            if key in fixed_params:
+                predictionspace[self._to_optimizer_id(key)] = np.full((1,resolution), self.eval_function.default_rosparams[self._to_rosparam(key)])
+            else:
+                bounds = self.eval_function.optimization_bounds[self._to_rosparam(key)]
+                predictionspace[self._to_optimizer_id(key)] = np.linspace(bounds[0], bounds[1], resolution)
+        predictionspace = predictionspace.T
         # Get mean and sigma from the gaussian process
-        y_pred, sigma = self.optimizer.gp.predict(renderspace_x, return_std=True)
-        # Plot the observations given to the gaussian process
-        metric_axis.plot(self.optimizer.X.flatten(), self.optimizer.Y, 'b.', markersize=10, label=u'Observations')
+        y_pred, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
+        # Plot the observations available to the gaussian process
+        filtered_X, filtered_Y = self._get_filtered_observations(fixed_params)
+        metric_axis.plot(filtered_X.T[self._to_optimizer_id(param_name)], filtered_Y, 'b.', markersize=10, label=u'Observations')
         # Plot the gp's prediction mean
-        metric_axis.plot(renderspace_x, y_pred, 'b-', label=u'Prediction')
+        plotspace = predictionspace[:,self._to_optimizer_id(param_name)]
+        metric_axis.plot(plotspace, y_pred, 'b-', label=u'Prediction')
         # Plot the gp's prediction 'sigma-tube'
-        metric_axis.fill(np.concatenate([renderspace_x, renderspace_x[::-1]]),
-                 np.concatenate([y_pred - 1.9600 * sigma,
-                                (y_pred + 1.9600 * sigma)[::-1]]),
-                 alpha=.5, fc='b', ec='None', label='95% confidence interval')
+        metric_axis.fill(np.concatenate([plotspace, plotspace[::-1]]),
+                         np.concatenate([y_pred - 1.9600 * sigma,
+                                        (y_pred + 1.9600 * sigma)[::-1]]),
+                         alpha=.5, fc='b', ec='None', label='95% confidence interval')
 
         # Plot all evaluation function samples we have
         samples_x = []
@@ -193,7 +203,7 @@ class ExperimentCoordinator(object):
         fixed_params = self.eval_function.default_rosparams.copy()
         del(fixed_params[self._to_rosparam(param_name)])
         for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
-            samples_x.append(params_dict[param_name])
+            samples_x.append(params_dict[self._to_rosparam(param_name)])
             samples_y.append(metric_value)
         metric_axis.scatter(samples_x, samples_y, c='r', label=u"All known samples")
         metric_axis.set_ylim(0, 1)
@@ -205,6 +215,31 @@ class ExperimentCoordinator(object):
         print("\tSaving gpr plot to", path)
         fig.savefig(path)
         fig.clf()
+
+    def _get_filtered_observations(self, fixed_params_display_names):
+        usables = []
+        for i, x in enumerate(self.optimizer.X):
+            # For each sample, check if it's usable:
+            usable = True
+            for fixed_param in fixed_params_display_names:
+                if not self.eval_function.default_rosparams[self._to_rosparam(fixed_param)] == x[self._to_optimizer_id(fixed_param)]:
+                    usable = False
+                    break
+            if usable:
+                usables.append(i)
+        # Filters self.optimizer.X with indices in usables along axis 0
+        return np.take(self.optimizer.X, usables, 0), np.take(self.optimizer.Y, usables)
+
+    def _to_optimizer_id(self, display_name):
+        """
+        Takes a "display_name" (i.e. the name for a parameter as defined in the experiment's yaml file)
+        and returns its id in the optimizer's X-array.
+        """
+        rosparam_name = self._to_rosparam(display_name)
+        for i, key in enumerate(self.optimizer.keys):
+            if key == rosparam_name:
+                return i
+        raise LookupError("Rosparam", rosparam_name, "is not in the optimizer's key list. Maybe it isn't one of the optimized parameters?")
 
     def _to_rosparam(self, display_name):
         """
@@ -316,9 +351,9 @@ if __name__ == '__main__': # don't execute when module is imported
         experiment_coordinator.initialize_optimizer()
         while True:
             experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
-            for param_name, param_dict in experiment_parameters_dict['optimization_definitions'].items():
-                plot_name = param_name.replace(" ", "_") + "_" + str(iteration).zfill(5) + "_iteration.svg"
-                experiment_coordinator.plot_gpr_single_param(plot_name, param_name)
+            for display_name in experiment_parameters_dict['optimization_definitions'].keys():
+                plot_name = display_name.replace(" ", "_") + "_" + str(iteration).zfill(5) + "_iteration.svg"
+                experiment_coordinator.plot_gpr_single_param(plot_name, display_name)
             iteration += 1
 
     # Execute cmdline interface
