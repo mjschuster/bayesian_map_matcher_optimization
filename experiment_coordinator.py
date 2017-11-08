@@ -6,6 +6,7 @@ from performance_measures import PerformanceMeasure
 
 # Foreign packages
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import os
 import rosparam
@@ -30,6 +31,7 @@ class ExperimentCoordinator(object):
         :param params_dict: A dictionary which contains all parameters needed to define an experiment.
         :param relpath_root: Basepath for all (other) relative paths in the params_dict.
         """
+        self.iteration = 0 # Holds the current iteration's number
         self._params = params_dict
         self._relpath_root = relpath_root
 
@@ -73,6 +75,10 @@ class ExperimentCoordinator(object):
         print("Setting up Optimizer...")
         # Create the optimizer object
         self.optimizer = BayesianOptimization(self.eval_function.evaluate, opt_bounds)
+        # Create a kwargs member for passing to the maximize method (see iterate())
+        # Those parameters will be passed to the GPR member of the optimizer
+        self.gpr_kwargs = {'alpha': self._params['gpr_params']['observation_noise']
+                                    if 'gpr_params' in self._params else 1e-10} # defaults to gpr's default value
 
     def initialize_optimizer(self):
         # Get the initialization samples from the EvaluationFunction
@@ -157,7 +163,64 @@ class ExperimentCoordinator(object):
         path = os.path.join(self._params['plots_directory'], plot_name)
         print("\tSaving metric plot to", path)
         fig.savefig(path)
-        fig.clf()
+        plt.close()
+
+    def plot_gpr_two_param_3d(self, plot_name, param_names, interactive):
+        """
+        Saves a 3D plot of the GPR estimate to disk.
+        The X,Y axes will be parameter values, the Z axis the performance measure.
+        :param plot_name: Filename of the plot. (plot will be saved into the plots_directory of the experiment yaml)
+        :param param_names: List of names of the parameters that are shown in this plot.
+        :param interactive: If true, an interactive window showing the plot will be opened.
+        """
+        fig = plt.figure()
+        ax_3d = fig.add_subplot(111, projection='3d')
+
+        # Get data from the GPR
+        predictionspace = self._get_prediction_space(param_names, resolution=30)
+        mean, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
+        filtered_X, filtered_Y = self._get_filtered_observations(param_names)
+        ax_3d.scatter(xs = filtered_X.T[self._to_optimizer_id(param_names[0])],
+                      ys = filtered_X.T[self._to_optimizer_id(param_names[1])],
+                      zs = filtered_Y, c='blue', label=u'Observations')
+        ax_3d.plot_wireframe(predictionspace[:,self._to_optimizer_id(param_names[0])],
+                             predictionspace[:,self._to_optimizer_id(param_names[1])],
+                             mean, rstride=10, cstride=10, label=u'Prediction')
+
+        # Plot all evaluation function samples we have
+        # Get parameter values from the default rosparams
+        fixed_params = self.eval_function.default_rosparams.copy()
+        # delete the free parameters from it
+        del(fixed_params[self._to_rosparam(param_names[0])])
+        del(fixed_params[self._to_rosparam(param_names[1])])
+        # Those members will hold the data
+        samples_x = []
+        samples_y = []
+        samples_z = []
+        # Gather available x, y pairs in the above two variables
+        for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
+            samples_x.append(params_dict[self._to_rosparam(param_names[0])])
+            samples_y.append(params_dict[self._to_rosparam(param_names[1])])
+            samples_z.append(metric_value)
+        ax_3d.scatter(samples_x, samples_y, samples_z, c='red', label=u"All known samples", s=5)
+        # Add legend
+        ax_3d.legend(loc='lower right')
+        # set limits
+        ax_3d.set_xlim(self.eval_function.optimization_bounds[self._to_rosparam(param_names[0])])
+        ax_3d.set_ylim(self.eval_function.optimization_bounds[self._to_rosparam(param_names[1])])
+        ax_3d.set_zlim=(0,1)
+        # set labels
+        ax_3d.set_xlabel(param_names[0])
+        ax_3d.set_ylabel(param_names[1])
+        ax_3d.set_zlabel(str(self.performance_measure))
+
+        # Save, show, clean up fig
+        path = os.path.join(self._params['plots_directory'], plot_name)
+        print("\tSaving gpr 3d plot to", path)
+        fig.savefig(path)
+        if interactive:
+            plt.show()
+        plt.close()
 
     def plot_gpr_single_param(self, plot_name, param_name):
         """
@@ -170,22 +233,11 @@ class ExperimentCoordinator(object):
         fig, metric_axis = plt.subplots()
         self._setup_metric_axis(metric_axis, param_name)
 
-        # Create a list of fixed parameters
-        fixed_params = list(self.optimization_defs.keys())
-        fixed_params.remove(param_name)
-        resolution = 1000 # resolution for the prediction and its plotting (higher means better quality)
-        predictionspace = np.zeros((len(self.optimizer.keys), resolution))
-        for key in self.optimization_defs.keys():
-            if key in fixed_params:
-                predictionspace[self._to_optimizer_id(key)] = np.full((1,resolution), self.eval_function.default_rosparams[self._to_rosparam(key)])
-            else:
-                bounds = self.eval_function.optimization_bounds[self._to_rosparam(key)]
-                predictionspace[self._to_optimizer_id(key)] = np.linspace(bounds[0], bounds[1], resolution)
-        predictionspace = predictionspace.T
+        predictionspace = self._get_prediction_space([param_name])
         # Get mean and sigma from the gaussian process
         y_pred, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
         # Plot the observations available to the gaussian process
-        filtered_X, filtered_Y = self._get_filtered_observations(fixed_params)
+        filtered_X, filtered_Y = self._get_filtered_observations((param_name))
         metric_axis.plot(filtered_X.T[self._to_optimizer_id(param_name)], filtered_Y, 'b.', markersize=10, label=u'Observations')
         # Plot the gp's prediction mean
         plotspace = predictionspace[:,self._to_optimizer_id(param_name)]
@@ -206,7 +258,6 @@ class ExperimentCoordinator(object):
             samples_x.append(params_dict[self._to_rosparam(param_name)])
             samples_y.append(metric_value)
         metric_axis.scatter(samples_x, samples_y, c='r', label=u"All known samples")
-        metric_axis.set_ylim(0, 1)
 
         metric_axis.legend(loc='lower right')
 
@@ -214,9 +265,29 @@ class ExperimentCoordinator(object):
         path = os.path.join(self._params['plots_directory'], plot_name)
         print("\tSaving gpr plot to", path)
         fig.savefig(path)
-        fig.clf()
+        plt.close()
 
-    def _get_filtered_observations(self, fixed_params_display_names):
+    def _get_prediction_space(self, free_params, resolution=1000):
+        """
+        Returns a predictionspace for the gaussian process.
+        :param free_params: Parameters which are supposed to vary in the prediction space.
+                            For all other dimensions, the respective parameter will only have the value from the initial rosparams.
+        :param resolution: The resolution for the prediction (higher means better quality)
+        """
+        predictionspace = np.zeros((len(self.optimizer.keys), np.power(resolution, len(free_params))))
+        for key in [fixed_param for fixed_param in self.optimization_defs.keys() if fixed_param not in free_params]: # Fill all fixed params with the default value
+            predictionspace[self._to_optimizer_id(key)] = np.full((1,np.power(resolution, len(free_params))), self.eval_function.default_rosparams[self._to_rosparam(key)])
+        # Handle free params
+        free_param_bounds = [self.eval_function.optimization_bounds[self._to_rosparam(key)] for key in free_params]
+        free_param_spaces = [np.linspace(bounds[0], bounds[1], resolution) for bounds in free_param_bounds]
+        free_param_coordinates = np.meshgrid(*free_param_spaces)
+        for i, key in enumerate(free_params):
+            predictionspace[self._to_optimizer_id(key)] = free_param_coordinates[i].flatten()
+        predictionspace = predictionspace.T
+        return predictionspace
+
+    def _get_filtered_observations(self, free_params_display_names):
+        fixed_params_display_names = [p for p in self.optimization_defs.keys() if not p in free_params_display_names]
         usables = []
         for i, x in enumerate(self.optimizer.X):
             # For each sample, check if it's usable:
@@ -257,6 +328,25 @@ class ExperimentCoordinator(object):
         else:
             return path
 
+    def iterate(self, interactive):
+        """
+        Runs one iteration of the system
+        """
+        self.optimizer.maximize(init_points=0, n_iter=1, kappa=2, **self.gpr_kwargs)
+
+        # plot this iteration's gpr state in 2d for all optimized parameters
+        display_names = list(self._params['optimization_definitions'].keys())
+        for display_name in display_names:
+            single_param_plot_name = display_name.replace(" ", "_") + "_" + str(self.iteration).zfill(5) + "_iteration.svg"
+            self.plot_gpr_single_param(single_param_plot_name, display_name)
+        # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
+        if len(display_names) > 1:
+            two_param_plot_name = "3d_" + display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + "_" + str(self.iteration).zfill(5) + "_iteration.svg"
+            self.plot_gpr_two_param_3d(two_param_plot_name, display_names, interactive)
+
+        # increase iteration counter
+        self.iteration += 1
+
 
 if __name__ == '__main__': # don't execute when module is imported
     import argparse # for the cmd-line interface
@@ -288,6 +378,10 @@ if __name__ == '__main__': # don't execute when module is imported
         parser = argparse.ArgumentParser(description=description_string)
         parser.add_argument('experiment_yaml',
                             help="Path to the yaml file which defines all parameters of one experiment run.")
+        parser.add_argument('--interactive', '-i',
+                            dest='interactive', action='store_true',
+                            help="If true, interactive visualizations will be displayed," +\
+                                  "which may block the program's execution until you close them.")
         parser.add_argument('--list-all-samples', '-la',
                             dest='list_all_samples', action='store_true',
                             help="Lists all samples available in the database and exits.")
@@ -347,14 +441,9 @@ if __name__ == '__main__': # don't execute when module is imported
             sys.exit()
 
         print("--> Mode: Experiment <--")
-        iteration = 0
         experiment_coordinator.initialize_optimizer()
         while True:
-            experiment_coordinator.optimizer.maximize(init_points=0, n_iter=1, kappa=2)
-            for display_name in experiment_parameters_dict['optimization_definitions'].keys():
-                plot_name = display_name.replace(" ", "_") + "_" + str(iteration).zfill(5) + "_iteration.svg"
-                experiment_coordinator.plot_gpr_single_param(plot_name, display_name)
-            iteration += 1
+            experiment_coordinator.iterate(interactive=args.interactive)
 
     # Execute cmdline interface
     command_line_interface()
