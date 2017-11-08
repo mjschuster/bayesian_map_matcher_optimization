@@ -6,7 +6,7 @@ from performance_measures import PerformanceMeasure
 
 # Foreign packages
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d import axes3d
 import numpy as np
 import os
 import rosparam
@@ -177,15 +177,16 @@ class ExperimentCoordinator(object):
         ax_3d = fig.add_subplot(111, projection='3d')
 
         # Get data from the GPR
-        predictionspace = self._get_prediction_space(param_names, resolution=30)
+        resolution = 50
+        predictionspace = self._get_prediction_space(param_names, resolution)
         mean, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
         filtered_X, filtered_Y = self._get_filtered_observations(param_names)
         ax_3d.scatter(xs = filtered_X.T[self._to_optimizer_id(param_names[0])],
                       ys = filtered_X.T[self._to_optimizer_id(param_names[1])],
                       zs = filtered_Y, c='blue', label=u'Observations')
-        ax_3d.plot_wireframe(predictionspace[:,self._to_optimizer_id(param_names[0])],
-                             predictionspace[:,self._to_optimizer_id(param_names[1])],
-                             mean, rstride=10, cstride=10, label=u'Prediction')
+        ax_3d.plot_wireframe(predictionspace[:,self._to_optimizer_id(param_names[0])].reshape((resolution, resolution)),
+                             predictionspace[:,self._to_optimizer_id(param_names[1])].reshape((resolution, resolution)),
+                             mean.reshape((resolution, resolution)), label=u'Prediction')
 
         # Plot all evaluation function samples we have
         # Get parameter values from the default rosparams
