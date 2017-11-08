@@ -333,7 +333,16 @@ class ExperimentCoordinator(object):
         """
         Runs one iteration of the system
         """
-        self.optimizer.maximize(init_points=0, n_iter=1, kappa=2, **self.gpr_kwargs)
+        if 'optimizer_params' in self._params.keys():
+            init_points = self._params['optimizer_params']['pre_iteration_random_points']
+            n_iter = self._params['optimizer_params']['samples_per_iteration']
+            kappa = self._params['optimizer_params']['kappa']
+        else:
+            init_points = 0
+            n_iter = 1
+            kappa = 2
+
+        self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
 
         # plot this iteration's gpr state in 2d for all optimized parameters
         display_names = list(self._params['optimization_definitions'].keys())
