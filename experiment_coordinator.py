@@ -33,6 +33,7 @@ class ExperimentCoordinator(object):
         :param relpath_root: Basepath for all (other) relative paths in the params_dict.
         """
         self.iteration = 0 # Holds the current iteration's number
+        self.max_performance_measure = 0 # Holds the currently best known performance measure score
         self._params = params_dict
         self._relpath_root = relpath_root
 
@@ -184,7 +185,7 @@ class ExperimentCoordinator(object):
         filtered_X, filtered_Y = self._get_filtered_observations(param_names)
         ax_3d.scatter(xs = filtered_X.T[self._to_optimizer_id(param_names[0])],
                       ys = filtered_X.T[self._to_optimizer_id(param_names[1])],
-                      zs = filtered_Y, c='blue', label=u'Observations')
+                      zs = filtered_Y, c='blue', label=u'Observations', s=50)
         ax_3d.plot_wireframe(predictionspace[:,self._to_optimizer_id(param_names[0])].reshape((resolution, resolution)),
                              predictionspace[:,self._to_optimizer_id(param_names[1])].reshape((resolution, resolution)),
                              mean.reshape((resolution, resolution)), label=u'Prediction')
@@ -344,22 +345,36 @@ class ExperimentCoordinator(object):
             n_iter = 1
             kappa = 2
         # String for identify this iteration
-        iteration_string = "_" + str(self.iteration).zfill(5) + "_iteration.svg"
+        iteration_string = "_" + str(self.iteration).zfill(5) + "_iteration"
         self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
         # Dump the gpr's state for later use (e.g. interactive plots)
-        pickle.dump(self.optimizer, open(os.path.join(self._params['plots_directory'], iteration_string + "optimizer.pkl"), 'wb'))
-
+        pickle.dump(self.optimizer, open(os.path.join(self._params['plots_directory'], "optimizer" + iteration_string + ".pkl"), 'wb'))
         # plot this iteration's gpr state in 2d for all optimized parameters
         display_names = list(self._params['optimization_definitions'].keys())
         for display_name in display_names:
-            self.plot_gpr_single_param(display_name.replace(" ", "_") + iteration_string, display_name)
+            self.plot_gpr_single_param(display_name.replace(" ", "_") + iteration_string + ".svg", display_name)
         # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
         if len(display_names) > 1:
-            two_param_plot_name = "3d_" + display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + "_" + str(self.iteration).zfill(5) + "_iteration.svg"
+            two_param_plot_name = "3d_" + display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + iteration_string + ".svg"
             self.plot_gpr_two_param_3d(two_param_plot_name, display_names)
-
+        # Check if we found a new best parameter set
+        if self.max_performance_measure < self.optimizer.res['max']['max_val']:
+            self.max_performance_measure = self.optimizer.res['max']['max_val']
+            # Dump the best parameter set currently known by the optimizer
+            yaml.dump(self.max_rosparams, open("best_rosparams" + iteration_string + ".yaml", 'w')) # TODO do sth against binarized numpy members!
+            # TODO: output statistics_plotter code for plotting violing plots of those samples?
         # increase iteration counter
         self.iteration += 1
+
+    @property
+    def max_rosparams(self):
+        """
+        Returns the complete rosparams dict with the best known parameters set.
+        Of course, only optimized parameters will potentially be different from the inital param set.
+        """
+        initial_params = self.eval_function.default_rosparams.copy()
+        initial_params.update(self.optimizer.res['max']['max_params'])
+        return initial_params
 
 
 if __name__ == '__main__': # don't execute when module is imported
@@ -407,8 +422,8 @@ if __name__ == '__main__': # don't execute when module is imported
                             help="Plots a 1D visualization of the metric's behaviour when changing the given parameter." +\
                                  " (parameter name has to fit the optimization definitions in the yaml file)")
         parser.add_argument('--interactive', '-i',
-                            dest='interactive',
-                            help="Opens the supplied pickle file as a matplotlib figure in interactive mode." +\
+                            dest='interactive', nargs='+',
+                            help="Loads the supplied optimizer pickle file(s) and opens interactive figures from their states. " +\
                                   "This may require setting your backend to something that supports interactive mode." +\
                                   "(see ~/.config/matplotlib/matplotlibrc for example)")
         args = parser.parse_args()
@@ -456,8 +471,9 @@ if __name__ == '__main__': # don't execute when module is imported
             sys.exit()
         if args.interactive:
             print("--> Interactive plot mode <--")
-            experiment_coordinator.optimizer = pickle.load(open(args.interactive, 'rb'))
-            experiment_coordinator.plot_gpr_two_param_3d(None, list(experiment_coordinator._params['optimization_definitions'].keys()))
+            for path in args.interactive:
+                experiment_coordinator.optimizer = pickle.load(open(path, 'rb'))
+                experiment_coordinator.plot_gpr_two_param_3d(None, list(experiment_coordinator._params['optimization_definitions'].keys()))
             sys.exit()
 
         print("--> Mode: Experiment <--")
