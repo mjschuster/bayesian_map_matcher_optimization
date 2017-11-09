@@ -5,6 +5,7 @@ import evaluation_function
 from performance_measures import PerformanceMeasure
 
 # Foreign packages
+import pickle
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 import numpy as np
@@ -161,17 +162,17 @@ class ExperimentCoordinator(object):
 
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
-        print("\tSaving metric plot to", path)
         fig.savefig(path)
+        print("\tSaved metric plot to", path)
         plt.close()
 
-    def plot_gpr_two_param_3d(self, plot_name, param_names, interactive):
+    def plot_gpr_two_param_3d(self, plot_name, param_names):
         """
         Saves a 3D plot of the GPR estimate to disk.
         The X,Y axes will be parameter values, the Z axis the performance measure.
         :param plot_name: Filename of the plot. (plot will be saved into the plots_directory of the experiment yaml)
+                          If None, the plot will not be saved but instead be opened in interactive mode.
         :param param_names: List of names of the parameters that are shown in this plot.
-        :param interactive: If true, an interactive window showing the plot will be opened.
         """
         fig = plt.figure()
         ax_3d = fig.add_subplot(111, projection='3d')
@@ -216,11 +217,12 @@ class ExperimentCoordinator(object):
         ax_3d.set_zlabel(str(self.performance_measure))
 
         # Save, show, clean up fig
-        path = os.path.join(self._params['plots_directory'], plot_name)
-        print("\tSaving gpr 3d plot to", path)
-        fig.savefig(path)
-        if interactive:
+        if plot_name is None:
             plt.show()
+        else:
+            path = os.path.join(self._params['plots_directory'], plot_name)
+            fig.savefig(path) # Save an image of the 3d plot (which, of course, only shows one specific projection)
+            print("\tSaved 3d plot to", path)
         plt.close()
 
     def plot_gpr_single_param(self, plot_name, param_name):
@@ -264,8 +266,8 @@ class ExperimentCoordinator(object):
 
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
-        print("\tSaving gpr plot to", path)
         fig.savefig(path)
+        print("\tSaved plot to", path)
         plt.close()
 
     def _get_prediction_space(self, free_params, resolution=1000):
@@ -329,7 +331,7 @@ class ExperimentCoordinator(object):
         else:
             return path
 
-    def iterate(self, interactive):
+    def iterate(self):
         """
         Runs one iteration of the system
         """
@@ -341,18 +343,20 @@ class ExperimentCoordinator(object):
             init_points = 0
             n_iter = 1
             kappa = 2
-
+        # String for identify this iteration
+        iteration_string = "_" + str(self.iteration).zfill(5) + "_iteration.svg"
         self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
+        # Dump the gpr's state for later use (e.g. interactive plots)
+        pickle.dump(self.optimizer, open(os.path.join(self._params['plots_directory'], iteration_string + "optimizer.pkl"), 'wb'))
 
         # plot this iteration's gpr state in 2d for all optimized parameters
         display_names = list(self._params['optimization_definitions'].keys())
         for display_name in display_names:
-            single_param_plot_name = display_name.replace(" ", "_") + "_" + str(self.iteration).zfill(5) + "_iteration.svg"
-            self.plot_gpr_single_param(single_param_plot_name, display_name)
+            self.plot_gpr_single_param(display_name.replace(" ", "_") + iteration_string, display_name)
         # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
         if len(display_names) > 1:
             two_param_plot_name = "3d_" + display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + "_" + str(self.iteration).zfill(5) + "_iteration.svg"
-            self.plot_gpr_two_param_3d(two_param_plot_name, display_names, interactive)
+            self.plot_gpr_two_param_3d(two_param_plot_name, display_names)
 
         # increase iteration counter
         self.iteration += 1
@@ -388,10 +392,6 @@ if __name__ == '__main__': # don't execute when module is imported
         parser = argparse.ArgumentParser(description=description_string)
         parser.add_argument('experiment_yaml',
                             help="Path to the yaml file which defines all parameters of one experiment run.")
-        parser.add_argument('--interactive', '-i',
-                            dest='interactive', action='store_true',
-                            help="If true, interactive visualizations will be displayed," +\
-                                  "which may block the program's execution until you close them.")
         parser.add_argument('--list-all-samples', '-la',
                             dest='list_all_samples', action='store_true',
                             help="Lists all samples available in the database and exits.")
@@ -406,6 +406,11 @@ if __name__ == '__main__': # don't execute when module is imported
                             dest='plot_metric', nargs='+',
                             help="Plots a 1D visualization of the metric's behaviour when changing the given parameter." +\
                                  " (parameter name has to fit the optimization definitions in the yaml file)")
+        parser.add_argument('--interactive', '-i',
+                            dest='interactive',
+                            help="Opens the supplied pickle file as a matplotlib figure in interactive mode." +\
+                                  "This may require setting your backend to something that supports interactive mode." +\
+                                  "(see ~/.config/matplotlib/matplotlibrc for example)")
         args = parser.parse_args()
 
         # Load the parameters from the yaml into a dict
@@ -449,11 +454,16 @@ if __name__ == '__main__': # don't execute when module is imported
             print("\tFor parameter '", param_name, "'", sep="")
             experiment_coordinator.plot_metric_visualization1d("metric_visualization.svg", param_name)
             sys.exit()
+        if args.interactive:
+            print("--> Interactive plot mode <--")
+            experiment_coordinator.optimizer = pickle.load(open(args.interactive, 'rb'))
+            experiment_coordinator.plot_gpr_two_param_3d(None, list(experiment_coordinator._params['optimization_definitions'].keys()))
+            sys.exit()
 
         print("--> Mode: Experiment <--")
         experiment_coordinator.initialize_optimizer()
         while True:
-            experiment_coordinator.iterate(interactive=args.interactive)
+            experiment_coordinator.iterate()
 
     # Execute cmdline interface
     command_line_interface()
