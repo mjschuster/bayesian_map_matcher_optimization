@@ -55,24 +55,27 @@ def create_evaluation_function_sample(toplevel_directory, sample):
     sample.rotation_errors = []
     sample.time = datetime.timedelta(0)
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):
-        for file_name in files:
-            if file_name == "statistics.pkl":
-                # Check if data generation actually finished, using the map matcher log file
-                with open(os.path.join(root, "map_matcher.log"), 'r') as log_file:
-                    completed = False
-                    for line in log_file.readlines():
-                        if "no more submaps. stop." in line:
-                            completed = True
-                            break
-                    if not completed:
-                        raise IOError("Sample generation wasn't completed.")
-                # Sample seems ok, find and load pickle...
-                pickle_path = os.path.join(root, file_name)
-                print("\tLoading pickle", pickle_path)
-                eval_result_data = pickle.load(open(pickle_path, 'rb'), encoding='latin1')
-                sample.translation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['translation'].values())
-                sample.rotation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['rotation'].values())
-                sample.time += datetime.timedelta(seconds=float(eval_result_data['timings']['MapMatcherNode::runBatchMode total']['total']))
+        if dirs:
+            continue # skip this root if it has subdirs, we're only interested in the file tree leafs.
+        map_matcher_log_path = os.path.join(root, "map_matcher.log")
+        statistics_path = os.path.join(root, "statistics.pkl")
+        # Check if data generation actually finished, using the map matcher log file
+        with open(map_matcher_log_path, 'r') as log_file:
+            completed = False
+            for line in log_file.readlines():
+                if "no more submaps. stop." in line:
+                    completed = True
+                    break
+            if not completed:
+                raise IOError("Sample generation wasn't completed.", map_matcher_log_path)
+        # Sample seems ok, find and load pickle...
+        if not os.path.isfile(statistics_path):
+            raise IOError("No statistics.pkl in working dir. Maybe the statistics script failed?", statistics_path)
+        print("\tLoading pickle", statistics_path)
+        eval_result_data = pickle.load(open(statistics_path, 'rb'), encoding='latin1')
+        sample.translation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['translation'].values())
+        sample.rotation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['rotation'].values())
+        sample.time += datetime.timedelta(seconds=float(eval_result_data['timings']['MapMatcherNode::runBatchMode total']['total']))
     
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):
         for file_name in files:
