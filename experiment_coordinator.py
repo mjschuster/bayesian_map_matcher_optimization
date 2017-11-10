@@ -2,7 +2,7 @@
 
 # Local imports
 import evaluation_function
-from performance_measures import PerformanceMeasure
+import performance_measures
 
 # Foreign packages
 import pickle
@@ -65,7 +65,7 @@ class ExperimentCoordinator(object):
             opt_bounds[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
             print("\tOptimizing parameter '", p_name, "' as rosparam '", p_defs['rosparam_name'],\
                   "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
-        self.performance_measure = PerformanceMeasure.from_dict(self._params['performance_measure'])
+        self.performance_measure = performance_measures.PerformanceMeasure.from_dict(self._params['performance_measure'])
         self.eval_function = evaluation_function.EvaluationFunction(self.sample_db, default_rosparams,
                                                                     opt_bounds,
                                                                     self.performance_measure,
@@ -451,6 +451,13 @@ if __name__ == '__main__': # don't execute when module is imported
                 for display_name in experiment_coordinator.optimization_defs.keys():
                     print("\t\t", display_name, "=", x[experiment_coordinator._to_rosparam(display_name)])
                 print("\tMetric-value:", y)
+                if isinstance(experiment_coordinator.performance_measure, performance_measures.MixerMeasure):
+                    print("\t\tmeasure", type(experiment_coordinator.performance_measure.measure_a), "=",
+                          experiment_coordinator.performance_measure.measure_a(s),
+                          "(weight", 1 - experiment_coordinator.performance_measure.weight_b, ")")
+                    print("\t\tmeasure", type(experiment_coordinator.performance_measure.measure_b), "=",
+                          experiment_coordinator.performance_measure.measure_b(s),
+                          "(weight", experiment_coordinator.performance_measure.weight_b, ")")
             print("Number of usable samples:", count)
             sys.exit()
         if args.remove_samples:
