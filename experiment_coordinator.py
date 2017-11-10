@@ -444,13 +444,13 @@ if __name__ == '__main__': # don't execute when module is imported
         if args.list_samples:
             print("--> Mode: List Samples <--")
             count = 0
-            for X, Y in experiment_coordinator.eval_function:
+            for x, y, s in experiment_coordinator.eval_function:
                 count += 1
-                print(Y['sample'])
+                print(s)
                 print("\tOptimized Parameters:")
-                for name, defs in X.items():
-                    print("\t\t", name, "=", defs['value'])
-                print("\tMetric-value:", Y['metric'])
+                for display_name in experiment_coordinator.optimization_defs.keys():
+                    print("\t\t", display_name, "=", x[experiment_coordinator._to_rosparam(display_name)])
+                print("\tMetric-value:", y)
             print("Number of usable samples:", count)
             sys.exit()
         if args.remove_samples:
