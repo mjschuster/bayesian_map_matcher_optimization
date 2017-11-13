@@ -72,14 +72,40 @@ class EvaluationFunction(object):
         :param optimized_rosparams: A keyworded argument list.
         """
 
-        print("Evaluating function at", optimized_rosparams.items())
+        # Preprocess the parameters
+        self.preprocess_optimized_params(optimized_rosparams)
+        print("\033[1;34mSampling evaluation function at:", end="")
+        for name, value in optimized_rosparams.items():
+            print() # newline
+            print("\t", name, " = ", value, sep="", end="")
+        print("\033[0m")
+        # Create the full set of parameters by updating the default parameters with the optimized parameters.
+        complete_rosparams = self.default_rosparams.copy()
+        complete_rosparams.update(optimized_rosparams)
+        # Get the sample from the db (this call blocks until the sample is generated, if it isn't in the db)
+        sample = self._sample_db[complete_rosparams]
+        # Calculate and return the metric
+        value = self.performance_measure(sample)
+        print("\033[1;34m\tSample's performance measure:\033[1;37m", value, "\033[0m")
+        return value
 
-        # Error handling
+    def preprocess_optimized_params(self, optimized_params):
+        """
+        Takes a dict of optimized parameters as given by the optimizer and preprocesses it to fit the ros ecosystem.
+        
+        This includes a safety check to make sure the parameters requested by the optimizer don't violate the optimization bounds.
+        Additionally, all parameter types in the given dict will get casted to their respective type in the initial rosparams.
+        Otherwise, dumping them to a yaml file would create binarized numpy.float64 (for example) values, which can't be parsed by rosparam.
+        Also, values will get rounded according to the rounding_decimal_places parameter.
+
+        :param optimized_params: The params dict, as requested by the optimizer.
+        :returns: The preprocessed params dict, as needed by the ros ecosystem.
+        """
         # Iterate over the optimization bounds and check if the current request doesn't violate them
         for rosparam_name, bounds in self.optimization_bounds.items():
-            if not rosparam_name in optimized_rosparams:
-                raise ValueError(rosparam_name + " should get optimized, but wasn't in given dict of optimized parameters.", optimized_rosparams)
-            p_value = optimized_rosparams[rosparam_name]
+            if not rosparam_name in optimized_params:
+                raise ValueError(rosparam_name + " should get optimized, but wasn't in given dict of optimized parameters.", optimized_params)
+            p_value = optimized_params[rosparam_name]
             if p_value > bounds[1]: # max bound
                 raise ValueError(rosparam_name + " value (" + str(p_value) + ") is over max bound (" +\
                                  str(bounds[1]) + ").")
@@ -87,28 +113,23 @@ class EvaluationFunction(object):
                 raise ValueError(rosparam_name + " value (" + str(p_value) + ") is under min bound (" +\
                                  str(bounds[0]) + ").")
         # Iterate over the current request...
-        for p_name, p_value in optimized_rosparams.items():
+        for p_name, p_value in optimized_params.items():
             # ...check if there are parameters in there, that shouldn't be optimized.
             if not p_name in self.optimization_bounds.keys():
                 raise ValueError(str(p_name) + " shouldn't get optimized, but was in given dict of optimized parameters.")
-            # ...also cast their type to the type in the default rosparams dict. Otherwise, we may serialize
+            # ...also CAST their type to the type in the default rosparams dict. Otherwise, we may serialize
             # some high-precision numpy float class instead of having a built-in float value on the yaml, that
             # rosparams can actually read. Sadl, we'll lose some precision through that.
             if type(self.default_rosparams[p_name]) != type(p_value):
-                print("\tWarning, casting parameter type", type(p_value), "of", p_name, "to", type(self.default_rosparams[p_name]))
-                optimized_rosparams[p_name] = type(self.default_rosparams[p_name])(p_value)
+                #print("\tWarning, casting parameter type", type(p_value), "of", p_name, "to", type(self.default_rosparams[p_name]))
+                optimized_params[p_name] = type(self.default_rosparams[p_name])(p_value)
+            # ...also ROUND float values according to rounding_decimal_places parameter
             if self._rounding_decimal_places and isinstance(p_value, float):
-                rounded_p_value = round(optimized_rosparams[p_name], self._rounding_decimal_places)
-                print("\tWarning, rounding float value", p_name, ":", p_value, "->", rounded_p_value)
-                optimized_rosparams[p_name] = rounded_p_value
+                rounded_p_value = round(optimized_params[p_name], self._rounding_decimal_places)
+                #print("\tWarning, rounding float value", p_name, ":", p_value, "->", rounded_p_value)
+                optimized_params[p_name] = rounded_p_value
 
-        # Create the full set of parameters by updating the default parameters with the optimized parameters.
-        complete_rosparams = self.default_rosparams.copy()
-        complete_rosparams.update(optimized_rosparams)
-        # Get the sample from the db (this call blocks until the sample is generated, if it isn't in the db)
-        sample = self._sample_db[complete_rosparams]
-        # Calculate and return the metric
-        return self.performance_measure(sample)
+        return optimized_params
 
     def samples_filtered(self, fixed_params):
         """

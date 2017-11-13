@@ -77,7 +77,7 @@ class ExperimentCoordinator(object):
         ###########
         print("Setting up Optimizer...")
         # Create the optimizer object
-        self.optimizer = BayesianOptimization(self.eval_function.evaluate, opt_bounds)
+        self.optimizer = BayesianOptimization(self.eval_function.evaluate, opt_bounds, verbose=0)
         # Create a kwargs member for passing to the maximize method (see iterate())
         # Those parameters will be passed to the GPR member of the optimizer
         self.gpr_kwargs = {'alpha': self._params['gpr_params']['observation_noise']
@@ -347,6 +347,7 @@ class ExperimentCoordinator(object):
             kappa = 2
         # String for identify this iteration
         iteration_string = "_" + str(self.iteration).zfill(5) + "_iteration"
+        print("\033[1;4;35mIteration", self.iteration, ":\033[0m")
         self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
         # Dump the gpr's state for later use (e.g. interactive plots)
         pickle.dump(self.optimizer, open(os.path.join(self._params['plots_directory'], "optimizer" + iteration_string + ".pkl"), 'wb'))
@@ -360,9 +361,10 @@ class ExperimentCoordinator(object):
             self.plot_gpr_two_param_3d(two_param_plot_name, display_names)
         # Check if we found a new best parameter set
         if self.max_performance_measure < self.optimizer.res['max']['max_val']:
+            print("\t\033[1;35mNew maximum found, outputting params and plots!\033[0m")
             self.max_performance_measure = self.optimizer.res['max']['max_val']
             # Dump the best parameter set currently known by the optimizer
-            yaml.dump(self.max_rosparams, open("best_rosparams" + iteration_string + ".yaml", 'w')) # TODO do sth against binarized numpy members!
+            yaml.dump(self.max_rosparams, open("best_rosparams" + iteration_string + ".yaml", 'w'))
             # TODO: output statistics_plotter code for plotting violing plots of those samples?
         # increase iteration counter
         self.iteration += 1
@@ -373,9 +375,15 @@ class ExperimentCoordinator(object):
         Returns the complete rosparams dict with the best known parameters set.
         Of course, only optimized parameters will potentially be different from the inital param set.
         """
-        initial_params = self.eval_function.default_rosparams.copy()
-        initial_params.update(self.optimizer.res['max']['max_params'])
-        return initial_params
+        # Get the initial parameter values, including those which didn't get optimized
+        best_rosparams = self.eval_function.default_rosparams.copy()
+        # Get the best known optimized parameters as a dict from the optimizer
+        best_optimized_params = self.optimizer.res['max']['max_params'].copy()
+        # Fix parameter types and round its values
+        self.eval_function.preprocess_optimized_params(best_optimized_params)
+        # Update the initial params dict with optimized params dict
+        best_rosparams.update(best_optimized_params)
+        return best_rosparams
 
 
 if __name__ == '__main__': # don't execute when module is imported
