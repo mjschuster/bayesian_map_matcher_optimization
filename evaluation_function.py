@@ -233,7 +233,7 @@ class SampleDatabase(object):
 
         self._database_path = database_path
         self._sample_dir_path = sample_dir_path
-        self._sample_generator_config = sample_generator_config
+        self.sample_generator_config = sample_generator_config
         if os.path.exists(self._database_path): # If file exists...
             print("\tFound existing datapase pickle, loading from:", self._database_path, end=" ")
             # ...initialize the database from the file handle (hopefully points to a pickled dict...)
@@ -352,7 +352,7 @@ class SampleDatabase(object):
         if not params_hashed in self._db_dict.keys():
             # Generate a new sample and store it in the database
             print("\tNo sample with hash ", params_hashed, " in databse, generating new sample:", sep="'")
-            data_path = INTERFACE_MODULE.generate_sample(complete_rosparams, self._sample_generator_config)
+            data_path = INTERFACE_MODULE.generate_sample(complete_rosparams, self.sample_generator_config)
             print("\tSample generation finished, adding it to database.")
             self.create_sample_from_map_matcher_results(data_path)
         # Get the sample's db entry

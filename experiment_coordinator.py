@@ -7,12 +7,13 @@ import performance_measures
 # Foreign packages
 import pickle
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import axes3d
+from mpl_toolkits.mplot3d import axes3d # required for 3d plots
 import numpy as np
 import os
 import rosparam
 import yaml
 import sys
+import shutil # for removing full filetrees
 from bayes_opt import BayesianOptimization
 
 class ExperimentCoordinator(object):
@@ -415,6 +416,10 @@ if __name__ == '__main__': # don't execute when module is imported
                             help="Lists those samples in the database, which are relevant for this experiment and exits.")
         parser.add_argument('--remove-samples', '-rm',
                             dest='remove_samples', nargs='+', help=rm_arg_help)
+        parser.add_argument('--clean-map-matcher-env', '-cmme',
+                            dest='clean_mme', action='store_true',
+                            help="Removes all map matcher environment directories, which don't have a sample in the sample database associated with it." +\
+                                 "I.e. remove all directories of map matcher runs that didn't finish and, because of that, weren't added to the database.")
         parser.add_argument('--add-samples', '-a',
                             dest='add_samples', nargs='+', help=add_arg_help)
         parser.add_argument('--plot-metric', '-p',
@@ -459,6 +464,30 @@ if __name__ == '__main__': # don't execute when module is imported
                           experiment_coordinator.performance_measure.measure_b(s),
                           "(weight", experiment_coordinator.performance_measure.weight_b, ")")
             print("Number of usable samples:", count)
+            sys.exit()
+        if args.clean_mme:
+            print("--> Mode: Clean Up Map Matcher Environment <--")
+            # List of all sample origins in our database
+            sample_origins = [os.path.dirname(sample.origin) for sample in experiment_coordinator.sample_db]
+            print(sample_origins)
+            mme_path = experiment_coordinator.sample_db.sample_generator_config['environment']
+            # List of all map matcher ens
+            map_matcher_envs = [os.path.abspath(os.path.join(mme_path, path)) for path in os.listdir(mme_path)]
+            print("Number of map matcher envs:", len(map_matcher_envs), "; Number of sample origins:", len(sample_origins))
+            print("Generating list of map matcher envs which don't have a sample associated with it...")
+            to_delete_list = [mme_path for mme_path in map_matcher_envs if not mme_path in sample_origins]
+            for path in to_delete_list:
+                print(path)
+            print("Delete those", len(to_delete_list), "map matcher envs? (y/n)")
+            if input() in ['y', 'Y', 'yes', 'Yes']:
+                count = 0
+                for path in to_delete_list:
+                    count += 1
+                    print("deleted", count, "of", len(to_delete_list), "directories.", end='\r')
+                    shutil.rmtree(path)
+                print("All unused envs deleted.")
+            else:
+                print("aborted.")
             sys.exit()
         if args.remove_samples:
             print("--> Mode: Remove Samples <--")
