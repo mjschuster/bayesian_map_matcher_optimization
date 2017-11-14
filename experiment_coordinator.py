@@ -34,6 +34,8 @@ class ExperimentCoordinator(object):
         :param relpath_root: Basepath for all (other) relative paths in the params_dict.
         """
         self.iteration = 0 # Holds the current iteration's number
+        # Stores all discovered "best samples" during the experiment as tuples of (iteration, sample)
+        self.best_samples = list()
         self.max_performance_measure = 0 # Holds the currently best known performance measure score
         self._params = params_dict
         self._relpath_root = relpath_root
@@ -108,6 +110,69 @@ class ExperimentCoordinator(object):
         axis.set_ylabel(str(self.performance_measure))
         axis.yaxis.label.set_color('blue')
         axis.tick_params(axis='y', colors='blue')
+
+    def plot_error_distribution(self, plot_name, sample):
+        """
+        Saves a plot with the error distribution of the given sample as a violin plot.
+        """
+        fig, axes = plt.subplots(ncols=2)
+        # Create the violin plots on the axes
+        v_axes = (axes[0].violinplot(sample.rotation_errors, points=100, widths=0.7, bw_method=0.5,
+                                     showmeans=True, showextrema=True, showmedians=False),
+                  axes[1].violinplot(sample.translation_errors, points=100, widths=0.7, bw_method=0.5,
+                                     showmeans=True, showextrema=True, showmedians=False))
+        for i, axis in enumerate(v_axes):
+            plot_body = axis["bodies"][0]
+            plot_body.set_facecolor('blue' if i == 0 else 'yellow')
+            plot_body.set_edgecolor('black')
+        fig.suptitle("Iteration " + str(self.iteration) + ", " + str(sample.nr_matches) + " matches.")
+        axes[0].set_title("Rotation Errors")
+        axes[1].set_title("Translation Errors")
+        # Save and close
+        path = os.path.join(self._params['plots_directory'], plot_name)
+        fig.savefig(path)
+        print("\tSaved error distribution plot to", path)
+        plt.close()
+
+    def plot_best_samples_boxplots(self):
+        fig, axes = plt.subplots(4, sharex=True, figsize=(10,12))
+        fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
+        # make a list of iterations, to be used as x-axis
+        iterations = [best_sample_tuple[0] for best_sample_tuple in self.best_samples]
+        # Setup the axis for the performance measure (in blue)
+        axes[0].set_ylabel(str(self.performance_measure))
+        axes[0].set_ylim((0,1))
+        axes[0].yaxis.label.set_color('blue')
+        axes[0].tick_params(axis='y', colors='blue')
+        axes[0].scatter(iterations,
+                        [self.performance_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples],
+                        color='blue')
+        # Setup the axis for the number of matches (in red)
+        axes[1].set_ylabel('Nr. of Matches')
+        axes[1].yaxis.label.set_color('red')
+        axes[1].tick_params(axis='y', colors='red')
+        axes[1].ticklabel_format(useOffset=False) # Forbid offsetting y-axis values
+        axes[1].scatter(iterations,
+                        [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples],
+                        color='red')
+        # Setup the axis for the translation error boxplots (in magenta)
+        axes[2].set_title("")
+        axes[2].set_ylabel(u"$Err_{translation}$ [m]")
+        axes[2].yaxis.label.set_color('m')
+        axes[2].tick_params(axis='y', colors='m')
+        axes[2].boxplot([best_sample_tuple[1].translation_errors for best_sample_tuple in self.best_samples],
+                        positions=iterations)
+        # Setup the axis for the rotation error boxplots (in cyan)
+        axes[3].set_ylabel(u"$Err_{rotation}$ [deg]")
+        axes[3].yaxis.label.set_color('c')
+        axes[3].tick_params(axis='y', colors='c')
+        axes[3].boxplot([best_sample_tuple[1].rotation_errors for best_sample_tuple in self.best_samples],
+                        positions=iterations)
+        # Save and close
+        path = os.path.join(self._params['plots_directory'], "best_samples_boxplot.svg")
+        fig.savefig(path)
+        print("\tSaved boxplots of best samples to", path)
+        plt.close()
 
     def plot_metric_visualization1d(self, plot_name, param_name):
         """
@@ -365,7 +430,13 @@ class ExperimentCoordinator(object):
             self.max_performance_measure = self.optimizer.res['max']['max_val']
             # Dump the best parameter set currently known by the optimizer
             yaml.dump(self.max_rosparams, open("best_rosparams" + iteration_string + ".yaml", 'w'))
-            # TODO: output statistics_plotter code for plotting violing plots of those samples?
+            # Get the sample of the new best parameterset
+            max_sample = self.sample_db[self.max_rosparams]
+            # store it in the best_samples dict, for boxplots
+            self.best_samples.append((self.iteration, max_sample))
+            # violin plot of the new best sample
+            self.plot_error_distribution(os.path.join(self._params['plots_directory'], "violin_plot" + iteration_string + ".svg"), max_sample)
+            self.plot_best_samples_boxplots()
         # increase iteration counter
         self.iteration += 1
 
