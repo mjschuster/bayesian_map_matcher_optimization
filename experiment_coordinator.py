@@ -117,14 +117,18 @@ class ExperimentCoordinator(object):
         """
         fig, axes = plt.subplots(ncols=2)
         # Create the violin plots on the axes
-        v_axes = (axes[0].violinplot(sample.rotation_errors, points=100, widths=0.7, bw_method=0.5,
-                                     showmeans=True, showextrema=True, showmedians=False),
-                  axes[1].violinplot(sample.translation_errors, points=100, widths=0.7, bw_method=0.5,
-                                     showmeans=True, showextrema=True, showmedians=False))
-        for i, axis in enumerate(v_axes):
-            plot_body = axis["bodies"][0]
-            plot_body.set_facecolor('blue' if i == 0 else 'yellow')
-            plot_body.set_edgecolor('black')
+        if sample.nr_matches > 1:
+            v_axes = (axes[0].violinplot(sample.rotation_errors, points=100, widths=0.7, bw_method=0.5,
+                                         showmeans=True, showextrema=True, showmedians=False),
+                      axes[1].violinplot(sample.translation_errors, points=100, widths=0.7, bw_method=0.5,
+                                         showmeans=True, showextrema=True, showmedians=False))
+            for i, axis in enumerate(v_axes):
+                plot_body = axis["bodies"][0]
+                plot_body.set_facecolor('blue' if i == 0 else 'yellow')
+                plot_body.set_edgecolor('black')
+        else: # Special case for when only one match happened
+            axes[0].scatter([1], sample.rotation_errors)
+            axes[1].scatter([1], sample.translation_errors)
         fig.suptitle("Iteration " + str(self.iteration) + ", " + str(sample.nr_matches) + " matches.")
         axes[0].set_title("Rotation Errors")
         axes[1].set_title("Translation Errors")
@@ -233,6 +237,71 @@ class ExperimentCoordinator(object):
         print("\tSaved metric plot to", path)
         plt.close()
 
+    def plot_gpr_two_param_contour(self, plot_name, param_names):
+        """
+        Saves a 4 contour plot of the GPR to disk:
+        One subplot for GPR mean, target function, GPR variance and the acquisiton function.
+        The two axis will be the varied parameters, the color codes the respective values listed above.
+        :param plot_name: Filename of the plot. (plot will be saved into the plots_directory of the experiment yaml)
+                          If None, the plot will not be saved but instead be opened in interactive mode.
+        :param param_names: List of names of the parameters that are shown in this plot.
+        """
+        fig, axes = plt.subplots(2, 2)
+        resolution = 50
+        # Prepare x and y data (the same for all plots)
+        x_bounds = self.eval_function.optimization_bounds[self._to_rosparam(param_names[0])]
+        x = np.linspace(x_bounds[0], x_bounds[1], resolution)
+        y_bounds = self.eval_function.optimization_bounds[self._to_rosparam(param_names[1])]
+        y = np.linspace(y_bounds[0], y_bounds[1], resolution)
+        # Set labels for all axes
+        for ax in [sub_axes for sublist in axes for sub_axes in sublist]:
+            ax.set_xlabel(param_names[0], fontsize=5)
+            ax.set_ylabel(param_names[1], fontsize=5)
+        # Set shared arguments for the contourplot method
+        contour_kwargs = {'cmap': 'hot', 'extend': 'both'}
+        ############
+        # Prepare known samples plot
+        samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
+        contour_plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot') # TODO: make the colors to be scaled from 0,1
+        axes[0][0].set_title("All Known Samples")
+        fig.colorbar(contour_plot, ax=axes[0][0], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
+        ############
+        # Prepare mean plot
+        # Get observations known to the GPR
+        filtered_X, filtered_Y = self._get_filtered_observations(param_names)
+        # Get the GPR's estimate data
+        predictionspace = self._get_prediction_space(param_names, resolution)
+        mean, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
+        z_mean = np.reshape(mean, (resolution, resolution))
+        contour_plot = axes[0][1].contourf(x, y, z_mean, levels=np.linspace(0, 1, resolution), **contour_kwargs)
+        axes[0][1].set_title("Estimated Mean")
+        fig.colorbar(contour_plot, ax=axes[0][1], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
+        axes[0][1].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
+                           filtered_X.T[self._to_optimizer_id(param_names[1])], s=2, c='w')
+        ############
+        # Prepare variance plot
+        z_var = np.reshape(sigma * sigma, (resolution, resolution))
+        contour_plot = axes[1][0].contourf(x, y, z_var, levels=np.linspace(0, 0.5, resolution), **contour_kwargs)
+        axes[1][0].set_title("Estimation Variance")
+        fig.colorbar(contour_plot, ax=axes[1][0], ticks=np.linspace(0, 0.5, 11), label=u"$\sigma^2$")
+        ############
+        # Prepare acquisiton function plot
+        acq = self.optimizer.util.utility(predictionspace, gp=self.optimizer.gp,
+                                          y_max=self.optimizer.res['max']['max_val']) 
+        z_acq = np.reshape(acq, (resolution, resolution))
+        contour_plot = axes[1][1].contourf(x, y, z_acq, levels=np.linspace(0, 1, resolution), **contour_kwargs)
+        axes[1][1].set_title("Acquisition Function")
+        kappa = 2 if not 'optimizer_params' in self._params.keys() else self._params['optimizer_params']['kappa']
+        acq_label = u"$\mu + " + str(kappa) + u"\sigma$" # TODO: Change if using different acquisiton functions
+        fig.colorbar(contour_plot, ax=axes[1][1], ticks=np.linspace(0, 1, 11), label=acq_label)
+        # Call mpl's magic layouting method (elimates overlap etc.)
+        plt.tight_layout()
+        # save and close
+        path = os.path.join(self._params['plots_directory'], plot_name)
+        fig.savefig(path) # Save an image of the 3d plot (which, of course, only shows one specific projection)
+        print("\tSaved contour plot to", path)
+        plt.close()
+
     def plot_gpr_two_param_3d(self, plot_name, param_names):
         """
         Saves a 3D plot of the GPR estimate to disk.
@@ -257,20 +326,7 @@ class ExperimentCoordinator(object):
                              mean.reshape((resolution, resolution)), label=u'Prediction')
 
         # Plot all evaluation function samples we have
-        # Get parameter values from the default rosparams
-        fixed_params = self.eval_function.default_rosparams.copy()
-        # delete the free parameters from it
-        del(fixed_params[self._to_rosparam(param_names[0])])
-        del(fixed_params[self._to_rosparam(param_names[1])])
-        # Those members will hold the data
-        samples_x = []
-        samples_y = []
-        samples_z = []
-        # Gather available x, y pairs in the above two variables
-        for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
-            samples_x.append(params_dict[self._to_rosparam(param_names[0])])
-            samples_y.append(params_dict[self._to_rosparam(param_names[1])])
-            samples_z.append(metric_value)
+        samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
         ax_3d.scatter(samples_x, samples_y, samples_z, c='red', label=u"All known samples", s=5)
         # Add legend
         ax_3d.legend(loc='lower right')
@@ -356,6 +412,29 @@ class ExperimentCoordinator(object):
         predictionspace = predictionspace.T
         return predictionspace
 
+    def _get_filtered_samples( self, free_params_display_names):
+        """
+        Returns samples from the sample database, filtered by their fixed params values.
+        All parameters in the default rosparam dict are fixed, except those in the free_params_display_names list.
+        NOTE: Currently only really works for len(free_params_display_names) == 2...
+
+        :param free_params_display_names: List of parameter display names which are not fixed.
+        """
+        # Those members will hold the data
+        samples_x = []
+        samples_y = []
+        samples_z = []
+        # Gather available x, y pairs in the above two variables
+        fixed_params = self.eval_function.default_rosparams.copy()
+        # delete the free parameters from it
+        del(fixed_params[self._to_rosparam(free_params_display_names[0])])
+        del(fixed_params[self._to_rosparam(free_params_display_names[1])])
+        for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
+            samples_x.append(params_dict[self._to_rosparam(free_params_display_names[0])])
+            samples_y.append(params_dict[self._to_rosparam(free_params_display_names[1])])
+            samples_z.append(metric_value)
+        return samples_x, samples_y, samples_z
+
     def _get_filtered_observations(self, free_params_display_names):
         fixed_params_display_names = [p for p in self.optimization_defs.keys() if not p in free_params_display_names]
         usables = []
@@ -422,8 +501,9 @@ class ExperimentCoordinator(object):
             self.plot_gpr_single_param(display_name.replace(" ", "_") + iteration_string + ".svg", display_name)
         # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
         if len(display_names) > 1:
-            two_param_plot_name = "3d_" + display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + iteration_string + ".svg"
-            self.plot_gpr_two_param_3d(two_param_plot_name, display_names)
+            two_param_plot_name_prefix = display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + iteration_string + ".svg"
+            self.plot_gpr_two_param_3d("3d_" + two_param_plot_name_prefix, display_names)
+            self.plot_gpr_two_param_contour("contour_" + two_param_plot_name_prefix, display_names)
         # Check if we found a new best parameter set
         if self.max_performance_measure < self.optimizer.res['max']['max_val']:
             print("\t\033[1;35mNew maximum found, outputting params and plots!\033[0m")
