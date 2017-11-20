@@ -618,12 +618,19 @@ if __name__ == '__main__': # don't execute when module is imported
                             dest='plot_metric', nargs='+',
                             help="Plots a 1D visualization of the metric's behaviour when changing the given parameter." +\
                                  " (parameter name has to fit the optimization definitions in the yaml file)")
-        parser.add_argument('--interactive', '-i',
-                            dest='interactive', nargs='+',
-                            help="Loads the supplied optimizer pickle file(s) and opens interactive figures from their states. " +\
+        parser.add_argument('--3d-plot', '-3d',
+                            dest='plot3d', nargs='+',
+                            help="Loads the supplied experiment state pickle file(s) and opens interactive figures from their states. " +\
                                   "This may require setting your backend to something that supports interactive mode." +\
                                   "(see ~/.config/matplotlib/matplotlibrc for example)")
         args = parser.parse_args()
+
+        if args.plot3d:
+            print("--> Interactive 3D plot mode <--")
+            for path in args.plot3d:
+                experiment_coordinator = pickle.load(open(path, 'rb'))
+                experiment_coordinator.plot_gpr_two_param_3d(None, list(experiment_coordinator._params['optimization_definitions'].keys()))
+            sys.exit()
 
         # Load the parameters from the yaml into a dict
         experiment_parameters_dict = yaml.safe_load(open(args.experiment_yaml))
@@ -696,12 +703,6 @@ if __name__ == '__main__': # don't execute when module is imported
             param_name = ' '.join(args.plot_metric)
             print("\tFor parameter '", param_name, "'", sep="")
             experiment_coordinator.plot_metric_visualization1d("metric_visualization.svg", param_name)
-            sys.exit()
-        if args.interactive:
-            print("--> Interactive plot mode <--")
-            for path in args.interactive:
-                experiment_coordinator.optimizer = pickle.load(open(path, 'rb'))
-                experiment_coordinator.plot_gpr_two_param_3d(None, list(experiment_coordinator._params['optimization_definitions'].keys()))
             sys.exit()
 
         print("--> Mode: Experiment <--")
