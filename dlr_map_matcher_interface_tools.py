@@ -73,8 +73,8 @@ def create_evaluation_function_sample(toplevel_directory, sample):
             raise IOError("No statistics.pkl in working dir. Maybe the statistics script failed?", statistics_path)
         print("\tLoading pickle", statistics_path)
         eval_result_data = pickle.load(open(statistics_path, 'rb'), encoding='latin1')
-        sample.translation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['translation'].values())
-        sample.rotation_errors.extend(eval_result_data['results']['hough3d_to_ground_truth']['rotation'].values())
+        sample.translation_errors.extend(eval_result_data['results']['icp_to_ground_truth']['translation'].values())
+        sample.rotation_errors.extend(eval_result_data['results']['icp_to_ground_truth']['rotation'].values())
         sample.time += datetime.timedelta(seconds=float(eval_result_data['timings']['MapMatcherNode::runBatchMode total']['total']))
     
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):
