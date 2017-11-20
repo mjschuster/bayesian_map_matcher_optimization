@@ -717,7 +717,6 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Mode: Clean Up Map Matcher Environment <--")
             # List of all sample origins in our database
             sample_origins = [os.path.dirname(sample.origin) for sample in experiment_coordinator.sample_db]
-            print(sample_origins)
             mme_path = experiment_coordinator.sample_db.sample_generator_config['environment']
             # List of all map matcher ens
             map_matcher_envs = [os.path.abspath(os.path.join(mme_path, path)) for path in os.listdir(mme_path)]
