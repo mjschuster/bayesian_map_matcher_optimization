@@ -147,14 +147,16 @@ class ExperimentCoordinator(object):
     def plot_best_samples_boxplots(self):
         fig, axes = plt.subplots(4, sharex=True, figsize=(10,12))
         fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
-        # make a list of iterations, to be used as x-axis
+        # make a list of iterations, to be used as x-axis labels
         iterations = [best_sample_tuple[0] for best_sample_tuple in self.best_samples]
+        # make a list of corresponding values from 0 to n-1
+        x_axis = range(len(iterations))
         # Setup the axis for the performance measure (in blue)
         axes[0].set_ylabel(str(self.performance_measure))
         axes[0].set_ylim((0,1))
         axes[0].yaxis.label.set_color('blue')
         axes[0].tick_params(axis='y', colors='blue')
-        axes[0].scatter(iterations,
+        axes[0].scatter(x_axis,
                         [self.performance_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples],
                         color='blue')
         # Setup the axis for the number of matches (in red)
@@ -162,22 +164,25 @@ class ExperimentCoordinator(object):
         axes[1].yaxis.label.set_color('red')
         axes[1].tick_params(axis='y', colors='red')
         axes[1].ticklabel_format(useOffset=False) # Forbid offsetting y-axis values
-        axes[1].scatter(iterations,
+        axes[1].scatter(x_axis,
                         [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples],
                         color='red')
         # Setup the axis for the translation error boxplots (in magenta)
-        axes[2].set_title("")
         axes[2].set_ylabel(u"$Err_{translation}$ [m]")
         axes[2].yaxis.label.set_color('m')
         axes[2].tick_params(axis='y', colors='m')
         axes[2].boxplot([best_sample_tuple[1].translation_errors for best_sample_tuple in self.best_samples],
-                        positions=iterations)
+                        positions=x_axis)
+        axes[2].set_xticks(x_axis, iterations)
         # Setup the axis for the rotation error boxplots (in cyan)
         axes[3].set_ylabel(u"$Err_{rotation}$ [deg]")
         axes[3].yaxis.label.set_color('c')
         axes[3].tick_params(axis='y', colors='c')
         axes[3].boxplot([best_sample_tuple[1].rotation_errors for best_sample_tuple in self.best_samples],
-                        positions=iterations)
+                        positions=x_axis)
+        axes[3].set_xticks(x_axis, iterations)
+        axes[3].set_xticklabels(iterations)
+        axes[3].set_xlabel("iteration")
         # Save and close
         path = os.path.join(self._params['plots_directory'], "best_samples_boxplot.svg")
         fig.savefig(path)
