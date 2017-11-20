@@ -623,6 +623,18 @@ if __name__ == '__main__': # don't execute when module is imported
                             help="Loads the supplied experiment state pickle file(s) and opens interactive figures from their states. " +\
                                   "This may require setting your backend to something that supports interactive mode." +\
                                   "(see ~/.config/matplotlib/matplotlibrc for example)")
+        parser.add_argument('--plot-single', '-p1',
+                            dest='plot_single', nargs='+',
+                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots." +\
+                                 "Have a look at ExperimentCoordinator's 'plot_all_single_param' method, for further information.")
+        parser.add_argument('--plot-two', '-p2',
+                            dest='plot_two', nargs='+',
+                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots." +\
+                                 "Have a look at ExperimentCoordinator's 'plot_all_two_params' method, for further information.")
+        parser.add_argument('--plot-max', '-pmax',
+                            dest='plot_max', nargs='+',
+                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots." +\
+                                 "Have a look at ExperimentCoordinator's 'plot_all_new_best_params' method, for further information.")
         args = parser.parse_args()
 
         if args.plot3d:
@@ -630,6 +642,24 @@ if __name__ == '__main__': # don't execute when module is imported
             for path in args.plot3d:
                 experiment_coordinator = pickle.load(open(path, 'rb'))
                 experiment_coordinator.plot_gpr_two_param_3d(None, list(experiment_coordinator._params['optimization_definitions'].keys()))
+            sys.exit()
+        if args.plot_single:
+            print("--> Plot mode (single) <--")
+            for path in args.plot_single:
+                experiment_coordinator = pickle.load(open(path, 'rb'))
+                experiment_coordinator.plot_all_single_param()
+            sys.exit()
+        if args.plot_two:
+            print("--> Plot mode (two) <--")
+            for path in args.plot_two:
+                experiment_coordinator = pickle.load(open(path, 'rb'))
+                experiment_coordinator.plot_all_two_params()
+            sys.exit()
+        if args.plot_max:
+            print("--> Plot mode (max) <--")
+            for path in args.plot_max:
+                experiment_coordinator = pickle.load(open(path, 'rb'))
+                experiment_coordinator.plot_all_new_best_params()
             sys.exit()
 
         # Load the parameters from the yaml into a dict
