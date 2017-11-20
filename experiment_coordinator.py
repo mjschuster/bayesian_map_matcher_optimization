@@ -489,36 +489,69 @@ class ExperimentCoordinator(object):
             init_points = 0
             n_iter = 1
             kappa = 2
-        # String for identify this iteration
-        iteration_string = "_" + str(self.iteration).zfill(5) + "_iteration"
         print("\033[1;4;35mIteration", self.iteration, ":\033[0m")
         self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
         # Dump the gpr's state for later use (e.g. interactive plots)
-        pickle.dump(self.optimizer, open(os.path.join(self._params['plots_directory'], "optimizer" + iteration_string + ".pkl"), 'wb'))
+        pickle.dump(self, open(os.path.join(self._params['plots_directory'], "experiment_state" + self.iteration_string + ".pkl"), 'wb'))
         # plot this iteration's gpr state in 2d for all optimized parameters
-        display_names = list(self._params['optimization_definitions'].keys())
-        for display_name in display_names:
-            self.plot_gpr_single_param(display_name.replace(" ", "_") + iteration_string + ".svg", display_name)
+        self.plot_all_single_param()
         # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
+        display_names = list(self._params['optimization_definitions'].keys())
         if len(display_names) > 1:
-            two_param_plot_name_prefix = display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + iteration_string + ".svg"
-            self.plot_gpr_two_param_3d("3d_" + two_param_plot_name_prefix, display_names)
-            self.plot_gpr_two_param_contour("contour_" + two_param_plot_name_prefix, display_names)
+            self.plot_all_two_params()
         # Check if we found a new best parameter set
         if self.max_performance_measure < self.optimizer.res['max']['max_val']:
             print("\t\033[1;35mNew maximum found, outputting params and plots!\033[0m")
             self.max_performance_measure = self.optimizer.res['max']['max_val']
             # Dump the best parameter set currently known by the optimizer
-            yaml.dump(self.max_rosparams, open("best_rosparams" + iteration_string + ".yaml", 'w'))
-            # Get the sample of the new best parameterset
-            max_sample = self.sample_db[self.max_rosparams]
-            # store it in the best_samples dict, for boxplots
-            self.best_samples.append((self.iteration, max_sample))
-            # violin plot of the new best sample
-            self.plot_error_distribution(os.path.join(self._params['plots_directory'], "violin_plot" + iteration_string + ".svg"), max_sample)
-            self.plot_best_samples_boxplots()
+            yaml.dump(self.max_rosparams, open("best_rosparams" + self.iteration_string + ".yaml", 'w'))
+            # store the best known sample in the best_samples dict, for boxplots
+            self.best_samples.append((self.iteration, self.max_sample))
+            self.plot_all_new_best_params()
         # increase iteration counter
         self.iteration += 1
+
+    def plot_all_new_best_params(self):
+        """
+        Plots all kinds of plots for visualizing how the best parameters evolved.
+        """
+        # violin plot of the new best sample
+        self.plot_error_distribution(os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string + ".svg"), self.max_sample)
+        self.plot_best_samples_boxplots()
+
+    def plot_all_two_params(self):
+        """
+        Plots all kinds of plots that visualize two parameters at once.
+        The method does this for all pairs of optimized parameters.
+        """
+        display_names = list(self._params['optimization_definitions'].keys())
+        two_param_plot_name_prefix = display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + self.iteration_string + ".svg"
+        self.plot_gpr_two_param_3d("3d_" + two_param_plot_name_prefix, display_names)
+        self.plot_gpr_two_param_contour("contour_" + two_param_plot_name_prefix, display_names)
+
+    def plot_all_single_param(self):
+        """
+        Plots all kinds of plots that visualize a single parameter.
+        The method does this for all optimized parameters.
+        """
+        display_names = list(self._params['optimization_definitions'].keys())
+        for display_name in display_names:
+            self.plot_gpr_single_param(display_name.replace(" ", "_") + self.iteration_string + ".svg", display_name)
+
+    @property
+    def max_sample(self):
+        """
+        Returns the sample of the best known parameterset.
+        """
+        return self.sample_db[self.max_rosparams]
+
+    @property
+    def iteration_string(self):
+        """
+        String for identify this iteration, mainly used for naming plots.
+        Returns a string of form "_DDDDD_iteration", with DDDDD being the iteration's number, with prefixed zeros, if necessary.
+        """
+        return "_" + str(self.iteration).zfill(5) + "_iteration"
 
     @property
     def max_rosparams(self):
