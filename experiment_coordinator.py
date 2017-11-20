@@ -129,9 +129,15 @@ class ExperimentCoordinator(object):
         else: # Special case for when only one match happened
             axes[0].scatter([1], sample.rotation_errors)
             axes[1].scatter([1], sample.translation_errors)
+        # Set titles
         fig.suptitle("Iteration " + str(self.iteration) + ", " + str(sample.nr_matches) + " matches.")
         axes[0].set_title("Rotation Errors")
         axes[1].set_title("Translation Errors")
+        # Set x-axis limits
+        max_relevant_translation_error = self._params['performance_measure']['error_measure']['max_relevant_error']
+        max_relevant_rotation_error = performance_measures.translation_to_rotation_error(max_relevant_translation_error, self._params['performance_measure']['error_measure']['submap_size'])
+        axes[0].set_yticks(np.linspace(0, max_relevant_rotation_error, 10))
+        axes[1].set_yticks(np.linspace(0, max_relevant_translation_error, 10))
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
         fig.savefig(path)
@@ -694,12 +700,12 @@ if __name__ == '__main__': # don't execute when module is imported
                     print("\t\t", display_name, "=", x[experiment_coordinator._to_rosparam(display_name)])
                 print("\tMetric-value:", y)
                 if isinstance(experiment_coordinator.performance_measure, performance_measures.MixerMeasure):
-                    print("\t\tmeasure", type(experiment_coordinator.performance_measure.measure_a), "=",
-                          experiment_coordinator.performance_measure.measure_a(s),
-                          "(weight", 1 - experiment_coordinator.performance_measure.weight_b, ")")
-                    print("\t\tmeasure", type(experiment_coordinator.performance_measure.measure_b), "=",
-                          experiment_coordinator.performance_measure.measure_b(s),
-                          "(weight", experiment_coordinator.performance_measure.weight_b, ")")
+                    print("\t\terror measure", type(experiment_coordinator.performance_measure.error_measure), "=",
+                          experiment_coordinator.performance_measure.error_measure(s),
+                          "(weight", 1 - experiment_coordinator.performance_measure.matches_weight, ")")
+                    print("\t\tnr. matches measure", type(experiment_coordinator.performance_measure.matches_measure), "=",
+                          experiment_coordinator.performance_measure.matches_measure(s),
+                          "(weight", experiment_coordinator.performance_measure.matches_weight, ")")
             print("Number of usable samples:", count)
             sys.exit()
         if args.clean_mme:

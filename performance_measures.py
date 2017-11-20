@@ -7,6 +7,17 @@ Only classes that end with Measure (not *Function classes) take a Sample as __ca
 import numpy as np
 import matplotlib.pyplot as plt
 
+def translation_to_rotation_error(translation_error, submap_size):
+    """
+    Turns a translation error into a rotation error by finding the smallest rotation that could've caused the given translation error.
+    For this, the submap size is used, which should be the distance to the submap's point farthest from the origin.
+    Returns the estimated rotation error in degrees.
+    :params translation_error: The translation error or list of translation errors.
+    :params submap_size: The submap's size in the same unit as your translation errors.
+    """
+    rotation_error_rad = 2*np.arcsin(translation_error/(2*submap_size))
+    return np.rad2deg(rotation_error_rad)
+
 def rotation_to_translation_error(rotation_error, submap_size):
     """
     Turns a rotation error into a translation error by looking at the upper bound of translation errors that
@@ -74,9 +85,9 @@ class PerformanceMeasure(object):
         elif measure_dict['type'] == cls.AVAILABLE_TYPES[1]: # LogisticMaximumErrorMeasure
             return LogisticMaximumErrorMeasure(submap_size=measure_dict['submap_size'], max_relevant_error=measure_dict['max_relevant_error'])
         elif measure_dict['type'] == cls.AVAILABLE_TYPES[2]: # MixerMeasure
-            measure_a = PerformanceMeasure.from_dict(measure_dict['measure_a'])
-            measure_b = PerformanceMeasure.from_dict(measure_dict['measure_b'])
-            return MixerMeasure(measure_a, measure_b, measure_dict['weight_b'])
+            error_measure = PerformanceMeasure.from_dict(measure_dict['error_measure'])
+            matches_measure = PerformanceMeasure.from_dict(measure_dict['matches_measure'])
+            return MixerMeasure(error_measure, matches_measure, measure_dict['matches_weight'])
         elif measure_dict['type'] == cls.AVAILABLE_TYPES[3]: # NrMatchesMeasure
             return NrMatchesMeasure(measure_dict['expected_nr_matches'])
         else:
@@ -155,20 +166,20 @@ class MixerMeasure(PerformanceMeasure):
     Mixes two other measures.
     """
 
-    def __init__(self, measure_a, measure_b, weight_b):
+    def __init__(self, error_measure, matches_measure, matches_weight):
         """
         Initialize with setting parameters
-        :param measure_a: Performance measure a
-        :param measure_b: Performance measure b
-        :param weight_b: The weight of measure b. The measure_a's weight will be 1-weight_b.
+        :param error_measure: Performance measure to measure the error(s) of a sample.
+        :param matches_measure: Performance measure to measure the number of matches of a sample.
+        :param matches_weight: The weight of matches_measure in [0,1]. The error_measure's weight will be 1-matches_weight.
         """
         super().__init__()
-        self.measure_a = measure_a
-        self.measure_b = measure_b
-        self.weight_b = weight_b
+        self.error_measure = error_measure
+        self.matches_measure = matches_measure
+        self.matches_weight = matches_weight
 
     def __call__(self, sample):
-        return (1 - self.weight_b) * self.measure_a(sample) + self.weight_b * self.measure_b(sample)
+        return (1 - self.matches_weight) * self.error_measure(sample) + self.matches_weight * self.matches_measure(sample)
 
 class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
     """
