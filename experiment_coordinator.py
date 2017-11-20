@@ -247,12 +247,13 @@ class ExperimentCoordinator(object):
         :param param_names: List of names of the parameters that are shown in this plot.
         """
         fig, axes = plt.subplots(2, 2)
-        resolution = 50
+        RESOLUTION = 50 # determines the plots' RESOLUTION, i.e. how many values per dimension get sampled the GP
+        OFFSET = 0.01 # offsets the x-, y-axes, so markers at the edge are visible
         # Prepare x and y data (the same for all plots)
         x_bounds = self.eval_function.optimization_bounds[self._to_rosparam(param_names[0])]
-        x = np.linspace(x_bounds[0], x_bounds[1], resolution)
+        x = np.linspace(x_bounds[0] - OFFSET, x_bounds[1] + OFFSET, RESOLUTION)
         y_bounds = self.eval_function.optimization_bounds[self._to_rosparam(param_names[1])]
-        y = np.linspace(y_bounds[0], y_bounds[1], resolution)
+        y = np.linspace(y_bounds[0] - OFFSET, y_bounds[1] + OFFSET, RESOLUTION)
         # Set labels for all axes
         for ax in [sub_axes for sublist in axes for sub_axes in sublist]:
             ax.set_xlabel(param_names[0], fontsize=5)
@@ -262,7 +263,7 @@ class ExperimentCoordinator(object):
         ############
         # Prepare known samples plot
         samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
-        contour_plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot') # TODO: make the colors to be scaled from 0,1
+        contour_plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot', edgecolor='', vmin=0, vmax=1) # TODO: make the colors to be scaled from 0,1
         axes[0][0].set_title("All Known Samples")
         fig.colorbar(contour_plot, ax=axes[0][0], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
         ############
@@ -270,30 +271,37 @@ class ExperimentCoordinator(object):
         # Get observations known to the GPR
         filtered_X, filtered_Y = self._get_filtered_observations(param_names)
         # Get the GPR's estimate data
-        predictionspace = self._get_prediction_space(param_names, resolution)
+        predictionspace = self._get_prediction_space(param_names, RESOLUTION)
         mean, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
-        z_mean = np.reshape(mean, (resolution, resolution))
-        contour_plot = axes[0][1].contourf(x, y, z_mean, levels=np.linspace(0, 1, resolution), **contour_kwargs)
+        z_mean = np.reshape(mean, (RESOLUTION, RESOLUTION))
+        contour_plot = axes[0][1].contourf(x, y, z_mean, levels=np.linspace(0, 1, RESOLUTION), **contour_kwargs)
         axes[0][1].set_title("Estimated Mean")
         fig.colorbar(contour_plot, ax=axes[0][1], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
+        # plot all observations the GPR has
         axes[0][1].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
-                           filtered_X.T[self._to_optimizer_id(param_names[1])], s=2, c='w')
+                           filtered_X.T[self._to_optimizer_id(param_names[1])], marker='+', edgecolor='white')
         ############
         # Prepare variance plot
-        z_var = np.reshape(sigma * sigma, (resolution, resolution))
-        contour_plot = axes[1][0].contourf(x, y, z_var, levels=np.linspace(0, 0.5, resolution), **contour_kwargs)
+        z_var = np.reshape(sigma * sigma, (RESOLUTION, RESOLUTION))
+        contour_plot = axes[1][0].contourf(x, y, z_var, levels=np.linspace(0, 0.15, RESOLUTION), **contour_kwargs)
         axes[1][0].set_title("Estimation Variance")
         fig.colorbar(contour_plot, ax=axes[1][0], ticks=np.linspace(0, 0.5, 11), label=u"$\sigma^2$")
+        # plot all observations the GPR has
+        axes[1][0].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
+                           filtered_X.T[self._to_optimizer_id(param_names[1])], marker='+', edgecolor='white')
         ############
         # Prepare acquisiton function plot
         acq = self.optimizer.util.utility(predictionspace, gp=self.optimizer.gp,
                                           y_max=self.optimizer.res['max']['max_val']) 
-        z_acq = np.reshape(acq, (resolution, resolution))
-        contour_plot = axes[1][1].contourf(x, y, z_acq, levels=np.linspace(0, 1, resolution), **contour_kwargs)
+        z_acq = np.reshape(acq, (RESOLUTION, RESOLUTION))
+        contour_plot = axes[1][1].contourf(x, y, z_acq, levels=np.linspace(0, 1, RESOLUTION), **contour_kwargs)
         axes[1][1].set_title("Acquisition Function")
         kappa = 2 if not 'optimizer_params' in self._params.keys() else self._params['optimizer_params']['kappa']
         acq_label = u"$\mu + " + str(kappa) + u"\sigma$" # TODO: Change if using different acquisiton functions
         fig.colorbar(contour_plot, ax=axes[1][1], ticks=np.linspace(0, 1, 11), label=acq_label)
+        # plot all observations the GPR has
+        axes[1][1].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
+                           filtered_X.T[self._to_optimizer_id(param_names[1])], marker='+', edgecolor='white')
         # Call mpl's magic layouting method (elimates overlap etc.)
         plt.tight_layout()
         # save and close
@@ -314,16 +322,16 @@ class ExperimentCoordinator(object):
         ax_3d = fig.add_subplot(111, projection='3d')
 
         # Get data from the GPR
-        resolution = 50
-        predictionspace = self._get_prediction_space(param_names, resolution)
+        RESOLUTION = 50
+        predictionspace = self._get_prediction_space(param_names, RESOLUTION)
         mean, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
         filtered_X, filtered_Y = self._get_filtered_observations(param_names)
         ax_3d.scatter(xs = filtered_X.T[self._to_optimizer_id(param_names[0])],
                       ys = filtered_X.T[self._to_optimizer_id(param_names[1])],
                       zs = filtered_Y, c='blue', label=u'Observations', s=50)
-        ax_3d.plot_wireframe(predictionspace[:,self._to_optimizer_id(param_names[0])].reshape((resolution, resolution)),
-                             predictionspace[:,self._to_optimizer_id(param_names[1])].reshape((resolution, resolution)),
-                             mean.reshape((resolution, resolution)), label=u'Prediction')
+        ax_3d.plot_wireframe(predictionspace[:,self._to_optimizer_id(param_names[0])].reshape((RESOLUTION, RESOLUTION)),
+                             predictionspace[:,self._to_optimizer_id(param_names[1])].reshape((RESOLUTION, RESOLUTION)),
+                             mean.reshape((RESOLUTION, RESOLUTION)), label=u'Prediction')
 
         # Plot all evaluation function samples we have
         samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
@@ -393,19 +401,19 @@ class ExperimentCoordinator(object):
         print("\tSaved plot to", path)
         plt.close()
 
-    def _get_prediction_space(self, free_params, resolution=1000):
+    def _get_prediction_space(self, free_params, RESOLUTION=1000):
         """
         Returns a predictionspace for the gaussian process.
         :param free_params: Parameters which are supposed to vary in the prediction space.
                             For all other dimensions, the respective parameter will only have the value from the initial rosparams.
-        :param resolution: The resolution for the prediction (higher means better quality)
+        :param RESOLUTION: The RESOLUTION for the prediction (higher means better quality)
         """
-        predictionspace = np.zeros((len(self.optimizer.keys), np.power(resolution, len(free_params))))
+        predictionspace = np.zeros((len(self.optimizer.keys), np.power(RESOLUTION, len(free_params))))
         for key in [fixed_param for fixed_param in self.optimization_defs.keys() if fixed_param not in free_params]: # Fill all fixed params with the default value
-            predictionspace[self._to_optimizer_id(key)] = np.full((1,np.power(resolution, len(free_params))), self.eval_function.default_rosparams[self._to_rosparam(key)])
+            predictionspace[self._to_optimizer_id(key)] = np.full((1,np.power(RESOLUTION, len(free_params))), self.eval_function.default_rosparams[self._to_rosparam(key)])
         # Handle free params
         free_param_bounds = [self.eval_function.optimization_bounds[self._to_rosparam(key)] for key in free_params]
-        free_param_spaces = [np.linspace(bounds[0], bounds[1], resolution) for bounds in free_param_bounds]
+        free_param_spaces = [np.linspace(bounds[0], bounds[1], RESOLUTION) for bounds in free_param_bounds]
         free_param_coordinates = np.meshgrid(*free_param_spaces)
         for i, key in enumerate(free_params):
             predictionspace[self._to_optimizer_id(key)] = free_param_coordinates[i].flatten()
