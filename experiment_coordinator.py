@@ -716,13 +716,13 @@ if __name__ == '__main__': # don't execute when module is imported
         if args.clean_mme:
             print("--> Mode: Clean Up Map Matcher Environment <--")
             # List of all sample origins in our database
-            sample_origins = [os.path.dirname(sample.origin) for sample in experiment_coordinator.sample_db]
+            sample_origins = [os.path.basename(os.path.dirname(sample.origin)) for sample in experiment_coordinator.sample_db]
             mme_path = experiment_coordinator.sample_db.sample_generator_config['environment']
             # List of all map matcher ens
             map_matcher_envs = [os.path.abspath(os.path.join(mme_path, path)) for path in os.listdir(mme_path)]
             print("Number of map matcher envs:", len(map_matcher_envs), "; Number of sample origins:", len(sample_origins))
             print("Generating list of map matcher envs which don't have a sample associated with it...")
-            to_delete_list = [mme_path for mme_path in map_matcher_envs if not mme_path in sample_origins]
+            to_delete_list = [mme_path for mme_path in map_matcher_envs if not os.path.basename(mme_path) in sample_origins]
             for path in to_delete_list:
                 print(path)
             print("Delete those", len(to_delete_list), "map matcher envs? (y/n)")
