@@ -14,6 +14,7 @@ import rosparam
 import yaml
 import sys
 import shutil # for removing full filetrees
+import itertools
 from bayes_opt import BayesianOptimization
 
 class ExperimentCoordinator(object):
@@ -274,9 +275,10 @@ class ExperimentCoordinator(object):
         ############
         # Prepare known samples plot
         samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
-        contour_plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot', edgecolor='', vmin=0, vmax=1) # TODO: make the colors to be scaled from 0,1
-        axes[0][0].set_title("All Known Samples")
-        fig.colorbar(contour_plot, ax=axes[0][0], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
+        if len(samples_x) > 0:
+            plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot', edgecolor='', vmin=0, vmax=1)
+            axes[0][0].set_title("All Known Samples")
+            fig.colorbar(plot, ax=axes[0][0], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
         ############
         # Prepare mean plot
         # Get observations known to the GPR
@@ -285,18 +287,18 @@ class ExperimentCoordinator(object):
         predictionspace = self._get_prediction_space(param_names, RESOLUTION)
         mean, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
         z_mean = np.reshape(mean, (RESOLUTION, RESOLUTION))
-        contour_plot = axes[0][1].contourf(x, y, z_mean, levels=np.linspace(0, 1, RESOLUTION), **contour_kwargs)
+        plot = axes[0][1].contourf(x, y, z_mean, levels=np.linspace(0, 1, RESOLUTION), **contour_kwargs)
         axes[0][1].set_title("Estimated Mean")
-        fig.colorbar(contour_plot, ax=axes[0][1], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
+        fig.colorbar(plot, ax=axes[0][1], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
         # plot all observations the GPR has
         axes[0][1].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
                            filtered_X.T[self._to_optimizer_id(param_names[1])], marker='+', edgecolor='white')
         ############
         # Prepare variance plot
         z_var = np.reshape(sigma * sigma, (RESOLUTION, RESOLUTION))
-        contour_plot = axes[1][0].contourf(x, y, z_var, levels=np.linspace(0, 0.15, RESOLUTION), **contour_kwargs)
+        plot = axes[1][0].contourf(x, y, z_var, levels=np.linspace(0, 0.15, RESOLUTION), **contour_kwargs)
         axes[1][0].set_title("Estimation Variance")
-        fig.colorbar(contour_plot, ax=axes[1][0], ticks=np.linspace(0, 0.5, 11), label=u"$\sigma^2$")
+        fig.colorbar(plot, ax=axes[1][0], ticks=np.linspace(0, 0.5, 11), label=u"$\sigma^2$")
         # plot all observations the GPR has
         axes[1][0].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
                            filtered_X.T[self._to_optimizer_id(param_names[1])], marker='+', edgecolor='white')
@@ -305,11 +307,11 @@ class ExperimentCoordinator(object):
         acq = self.optimizer.util.utility(predictionspace, gp=self.optimizer.gp,
                                           y_max=self.optimizer.res['max']['max_val']) 
         z_acq = np.reshape(acq, (RESOLUTION, RESOLUTION))
-        contour_plot = axes[1][1].contourf(x, y, z_acq, levels=np.linspace(0, 1, RESOLUTION), **contour_kwargs)
+        plot = axes[1][1].contourf(x, y, z_acq, levels=np.linspace(0, 1, RESOLUTION), **contour_kwargs)
         axes[1][1].set_title("Acquisition Function")
         kappa = 2 if not 'optimizer_params' in self._params.keys() else self._params['optimizer_params']['kappa']
         acq_label = u"$\mu + " + str(kappa) + u"\sigma$" # TODO: Change if using different acquisiton functions
-        fig.colorbar(contour_plot, ax=axes[1][1], ticks=np.linspace(0, 1, 11), label=acq_label)
+        fig.colorbar(plot, ax=axes[1][1], ticks=np.linspace(0, 1, 11), label=acq_label)
         # plot all observations the GPR has
         axes[1][1].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
                            filtered_X.T[self._to_optimizer_id(param_names[1])], marker='+', edgecolor='white')
@@ -516,7 +518,7 @@ class ExperimentCoordinator(object):
         self.plot_all_single_param()
         # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
         display_names = list(self._params['optimization_definitions'].keys())
-        if len(display_names) > 1:
+        if len(display_names) > 1 and len(display_names) < 4: # don't plot all pairs of parameters when there are more then 4, it'll take too much time.
             self.plot_all_two_params()
         # Check if we found a new best parameter set
         if self.max_performance_measure < self.optimizer.res['max']['max_val']:
@@ -544,9 +546,10 @@ class ExperimentCoordinator(object):
         The method does this for all pairs of optimized parameters.
         """
         display_names = list(self._params['optimization_definitions'].keys())
-        two_param_plot_name_prefix = display_names[0].replace(" ", "_") + "_" + display_names[1].replace(" ", "_") + self.iteration_string + ".svg"
-        self.plot_gpr_two_param_3d("3d_" + two_param_plot_name_prefix, display_names)
-        self.plot_gpr_two_param_contour("contour_" + two_param_plot_name_prefix, display_names)
+        for display_name_pairs in itertools.combinations(display_names, 2):
+            two_param_plot_name_prefix = display_name_pairs[0].replace(" ", "_") + "_" + display_name_pairs[1].replace(" ", "_") + self.iteration_string + ".svg"
+            self.plot_gpr_two_param_3d("3d_" + two_param_plot_name_prefix, display_name_pairs)
+            self.plot_gpr_two_param_contour("contour_" + two_param_plot_name_prefix, display_name_pairs)
 
     def plot_all_single_param(self):
         """
