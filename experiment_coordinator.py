@@ -41,6 +41,11 @@ class ExperimentCoordinator(object):
         self._params = params_dict
         self._relpath_root = relpath_root
 
+        if "rng_seed" in self._params.keys():
+            # Set seed of numpy random number generator
+            print("Setting RNG seed to", self._params["rng_seed"])
+            np.random.seed(self._params["rng_seed"])
+
         # Resolve relative paths
         self._params['plots_directory'] = self._resolve_relative_path(self._params['plots_directory'])
         database_path = self._resolve_relative_path(self._params['database_path'])
@@ -112,10 +117,51 @@ class ExperimentCoordinator(object):
         axis.yaxis.label.set_color('blue')
         axis.tick_params(axis='y', colors='blue')
 
-    def plot_error_distribution(self, plot_name, sample):
+    def output_sampled_params_table(self):
+        """
+        Creates a markdown file sampled_params.md which contains a markdown-table of the sampled parameters.
+        Resulting table is supposed to look something like this:
+        | Param 1 | Param 2 | Param 3 |
+        | -------:| -------:| -------:|
+        |  0.2912 |   1.231 |   23.12 |
+        |  0.1422 |   1.914 |   2.182 |
+        |  0.7811 |   2.111 |   12.29 |
+        Formatting may break in the current implementation, if parameter values are bigger (i.e. not rounded)
+        then the longest display name size.
+        """
+        # get length of longest display name
+        max_length = max([len(display_name) for display_name in self.optimization_defs.keys()])
+        left_sep = "| "
+        right_sep = " |"
+        center_sep = " | "
+        with open("sampled_params.md", 'w') as table_file:
+            # Write table headers
+            table_file.write(left_sep)
+            for i, display_name in enumerate(self.optimization_defs.keys()):
+                table_file.write(display_name.rjust(max_length, ' ')) # rjust fills string with spaces
+                # write center or right separator, depending on whether we're at the last element
+                table_file.write((center_sep if not i == len(self.optimization_defs.keys()) - 1 else right_sep))
+            # Write table header separator
+            table_file.write('\n' + left_sep)
+            for i in range(len(self.optimization_defs)):
+                # the colon position defines alignment of column text, in this case to the right
+                table_file.write('-' * max_length + (":| " if not i == len(self.optimization_defs.keys()) - 1 else ":|"))
+            # For each sample, create a row
+            for x in self.optimizer.X:
+                # Write sample's row
+                table_file.write('\n' + left_sep)
+                for i, display_name in enumerate(self.optimization_defs.keys()):
+                    param_value = round(x[self._to_optimizer_id(display_name)], self._params['rounding_decimal_places'])
+                    table_file.write(str(param_value).rjust(max_length, ' '))
+                    # write center or right separator, depending on whether we're at the last element
+                    table_file.write((center_sep if not i == len(self.optimization_defs.keys()) - 1 else right_sep))
+
+    def plot_error_distribution(self, plot_name, sample, max_rotation_error, max_translation_error, iteration=None):
         """
         Saves a plot with the error distribution of the given sample as a violin plot.
         """
+        if iteration is None:
+            iteration = self.iteration
         fig, axes = plt.subplots(ncols=2)
         # Create the violin plots on the axes
         if sample.nr_matches > 1:
@@ -131,14 +177,12 @@ class ExperimentCoordinator(object):
             axes[0].scatter([1], sample.rotation_errors)
             axes[1].scatter([1], sample.translation_errors)
         # Set titles
-        fig.suptitle("Iteration " + str(self.iteration) + ", " + str(sample.nr_matches) + " matches.")
+        fig.suptitle("Iteration " + str(iteration) + ", " + str(sample.nr_matches) + " matches.")
         axes[0].set_title("Rotation Errors")
         axes[1].set_title("Translation Errors")
         # Set x-axis limits
-        max_relevant_translation_error = self._params['performance_measure']['error_measure']['max_relevant_error']
-        max_relevant_rotation_error = performance_measures.translation_to_rotation_error(max_relevant_translation_error, self._params['performance_measure']['error_measure']['submap_size'])
-        axes[0].set_yticks(np.linspace(0, max_relevant_rotation_error, 10))
-        axes[1].set_yticks(np.linspace(0, max_relevant_translation_error, 10))
+        axes[0].set_yticks(np.linspace(0, max_rotation_error, 10))
+        axes[1].set_yticks(np.linspace(0, max_translation_error, 10))
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
         fig.savefig(path)
@@ -150,15 +194,18 @@ class ExperimentCoordinator(object):
         fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
         # make a list of iterations, to be used as x-axis labels
         iterations = [best_sample_tuple[0] for best_sample_tuple in self.best_samples]
+        # add another element for the inital params set
+        iterations.append("initial")
+        # Get inital params sample
+        init_sample = self.initial_sample
         # make a list of corresponding values from 0 to n-1
         x_axis = range(len(iterations))
         # Setup the axis for the performance measure (in blue)
         axes[0].set_ylabel(str(self.performance_measure))
-        axes[0].set_ylim((0,1))
         axes[0].yaxis.label.set_color('blue')
         axes[0].tick_params(axis='y', colors='blue')
         axes[0].scatter(x_axis,
-                        [self.performance_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples],
+                        [self.performance_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] + [self.performance_measure(init_sample)],
                         color='blue')
         # Setup the axis for the number of matches (in red)
         axes[1].set_ylabel('Nr. of Matches')
@@ -166,20 +213,20 @@ class ExperimentCoordinator(object):
         axes[1].tick_params(axis='y', colors='red')
         axes[1].ticklabel_format(useOffset=False) # Forbid offsetting y-axis values
         axes[1].scatter(x_axis,
-                        [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples],
+                        [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
                         color='red')
         # Setup the axis for the translation error boxplots (in magenta)
         axes[2].set_ylabel(u"$Err_{translation}$ [m]")
         axes[2].yaxis.label.set_color('m')
         axes[2].tick_params(axis='y', colors='m')
-        axes[2].boxplot([best_sample_tuple[1].translation_errors for best_sample_tuple in self.best_samples],
+        axes[2].boxplot([best_sample_tuple[1].translation_errors for best_sample_tuple in self.best_samples] + [init_sample.translation_errors],
                         positions=x_axis)
         axes[2].set_xticks(x_axis, iterations)
         # Setup the axis for the rotation error boxplots (in cyan)
         axes[3].set_ylabel(u"$Err_{rotation}$ [deg]")
         axes[3].yaxis.label.set_color('c')
         axes[3].tick_params(axis='y', colors='c')
-        axes[3].boxplot([best_sample_tuple[1].rotation_errors for best_sample_tuple in self.best_samples],
+        axes[3].boxplot([best_sample_tuple[1].rotation_errors for best_sample_tuple in self.best_samples] + [init_sample.rotation_errors],
                         positions=x_axis)
         axes[3].set_xticks(x_axis, iterations)
         axes[3].set_xticklabels(iterations)
@@ -275,8 +322,11 @@ class ExperimentCoordinator(object):
         ############
         # Prepare known samples plot
         samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
-        if len(samples_x) > 0:
+        if len(samples_x) > 0: # guard against crashes if no known samples exist in the plane we're currently looking at
             plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot', edgecolor='', vmin=0, vmax=1)
+            # set x,y axis bounds, only needed for the scatter plot
+            axes[0][0].set_xlim(x_bounds[0] - OFFSET, x_bounds[1] + OFFSET)
+            axes[0][0].set_ylim(y_bounds[0] - OFFSET, y_bounds[1] + OFFSET)
             axes[0][0].set_title("All Known Samples")
             fig.colorbar(plot, ax=axes[0][0], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
         ############
@@ -513,7 +563,7 @@ class ExperimentCoordinator(object):
         print("\033[1;4;35mIteration", self.iteration, ":\033[0m")
         self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
         # Dump the gpr's state for later use (e.g. interactive plots)
-        pickle.dump(self, open(os.path.join(self._params['plots_directory'], "experiment_state" + self.iteration_string + ".pkl"), 'wb'))
+        pickle.dump(self, open(os.path.join(self._params['plots_directory'], "experiment_state" + self.iteration_string() + ".pkl"), 'wb'))
         # plot this iteration's gpr state in 2d for all optimized parameters
         self.plot_all_single_param()
         # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
@@ -525,19 +575,45 @@ class ExperimentCoordinator(object):
             print("\t\033[1;35mNew maximum found, outputting params and plots!\033[0m")
             self.max_performance_measure = self.optimizer.res['max']['max_val']
             # Dump the best parameter set currently known by the optimizer
-            yaml.dump(self.max_rosparams, open("best_rosparams" + self.iteration_string + ".yaml", 'w'))
+            yaml.dump(self.max_rosparams, open("best_rosparams" + self.iteration_string() + ".yaml", 'w'))
             # store the best known sample in the best_samples dict, for boxplots
             self.best_samples.append((self.iteration, self.max_sample))
             self.plot_all_new_best_params()
+        self.output_sampled_params_table() # output a markdown table with all sampled params
         # increase iteration counter
         self.iteration += 1
 
-    def plot_all_new_best_params(self):
+    def plot_all_new_best_params(self, plot_all_violin=False):
         """
         Plots all kinds of plots for visualizing how the best parameters evolved.
+
+        :param plot_all_violin: Whether to plot all violin plots.
+                                If false, only the violin plot of self.max_sample is created except when a new max error is found.
         """
-        # violin plot of the new best sample
-        self.plot_error_distribution(os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string + ".svg"), self.max_sample)
+        # Find max rotation and translation errors from all best samples
+        max_rotation_error = max(max(s[1].rotation_errors) for s in self.best_samples)
+        max_translation_error = max(max(s[1].translation_errors) for s in self.best_samples)
+        # If the new best sample induced a new max rotation/translation error, recreate all previous violin plots.
+        # Otherwise, the y-axis will jump around when comparing the violin plots, which makes them pretty useless.
+        if max_rotation_error == max(self.max_sample.rotation_errors) or max_translation_error == max(self.max_sample.translation_errors):
+            print("\tNew max error, replotting all violin plots.")
+            plot_all_violin = True
+
+        if not plot_all_violin:
+            # violin plot of the new best sample
+            plot_path = os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string() + ".svg")
+            self.plot_error_distribution(plot_path, self.max_sample, max_rotation_error, max_translation_error)
+        else:
+            print(self.best_samples)
+            # plot violin plots for all best samples
+            for iteration, sample in self.best_samples:
+                plot_path = os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string(iteration) + ".svg")
+                self.plot_error_distribution(plot_path, sample, max_rotation_error, max_translation_error, iteration)
+            # also (re-)plot the initial params distribution
+            plot_path = os.path.join(self._params['plots_directory'], "violin_plot_initial.svg")
+            self.plot_error_distribution(plot_path, self.initial_sample, max_rotation_error, max_translation_error)
+
+        # create a new version of the boxplot which includes the new sample
         self.plot_best_samples_boxplots()
 
     def plot_all_two_params(self):
@@ -547,7 +623,7 @@ class ExperimentCoordinator(object):
         """
         display_names = list(self._params['optimization_definitions'].keys())
         for display_name_pairs in itertools.combinations(display_names, 2):
-            two_param_plot_name_prefix = display_name_pairs[0].replace(" ", "_") + "_" + display_name_pairs[1].replace(" ", "_") + self.iteration_string + ".svg"
+            two_param_plot_name_prefix = display_name_pairs[0].replace(" ", "_") + "_" + display_name_pairs[1].replace(" ", "_") + self.iteration_string() + ".svg"
             self.plot_gpr_two_param_3d("3d_" + two_param_plot_name_prefix, display_name_pairs)
             self.plot_gpr_two_param_contour("contour_" + two_param_plot_name_prefix, display_name_pairs)
 
@@ -558,7 +634,25 @@ class ExperimentCoordinator(object):
         """
         display_names = list(self._params['optimization_definitions'].keys())
         for display_name in display_names:
-            self.plot_gpr_single_param(display_name.replace(" ", "_") + self.iteration_string + ".svg", display_name)
+            self.plot_gpr_single_param(display_name.replace(" ", "_") + self.iteration_string() + ".svg", display_name)
+
+    def iteration_string(self, iteration=None):
+        """
+        Creates a string to identify an iteration, mainly used for naming plots.
+        Returns a string of form "_DDDDD_iteration", with DDDDD being the iteration's number, with prefixed zeros, if necessary.
+
+        :param iteration: The iteration number as an integer, or None. If None, the current iteration (self.iteration) is used.
+        """
+        if iteration is None:
+            iteration = self.iteration
+        return "_" + str(iteration).zfill(5) + "_iteration"
+
+    @property
+    def initial_sample(self):
+        """
+        Returns the sample of the initial parameterset.
+        """
+        return self.sample_db[self.eval_function.default_rosparams]
 
     @property
     def max_sample(self):
@@ -566,14 +660,6 @@ class ExperimentCoordinator(object):
         Returns the sample of the best known parameterset.
         """
         return self.sample_db[self.max_rosparams]
-
-    @property
-    def iteration_string(self):
-        """
-        String for identify this iteration, mainly used for naming plots.
-        Returns a string of form "_DDDDD_iteration", with DDDDD being the iteration's number, with prefixed zeros, if necessary.
-        """
-        return "_" + str(self.iteration).zfill(5) + "_iteration"
 
     @property
     def max_rosparams(self):
@@ -681,7 +767,7 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Plot mode (max) <--")
             for path in args.plot_max:
                 experiment_coordinator = pickle.load(open(path, 'rb'))
-                experiment_coordinator.plot_all_new_best_params()
+                experiment_coordinator.plot_all_new_best_params(plot_all_violin=True)
             sys.exit()
 
         # Load the parameters from the yaml into a dict
