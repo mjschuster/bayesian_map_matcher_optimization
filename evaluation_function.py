@@ -372,7 +372,7 @@ class SampleDatabase(object):
         # Check if we need to generate the sample first
         if not params_hashed in self._db_dict.keys():
             # Generate a new sample and store it in the database
-            print("\tNo sample with hash ", params_hashed, " in databse, generating new sample:", sep="'")
+            print("\tNo sample with hash ", params_hashed, " in database, generating new sample:", sep="'")
             data_path = INTERFACE_MODULE.generate_sample(complete_rosparams, self.sample_generator_config)
             print("\tSample generation finished, adding it to database.")
             self.create_sample_from_map_matcher_results(data_path)
