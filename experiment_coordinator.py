@@ -611,7 +611,7 @@ class ExperimentCoordinator(object):
                 self.plot_error_distribution(plot_path, sample, max_rotation_error, max_translation_error, iteration)
             # also (re-)plot the initial params distribution
             plot_path = os.path.join(self._params['plots_directory'], "violin_plot_initial.svg")
-            self.plot_error_distribution(plot_path, self.initial_sample, max_rotation_error, max_translation_error)
+            self.plot_error_distribution(plot_path, self.initial_sample, max_rotation_error, max_translation_error, "initial")
 
         # create a new version of the boxplot which includes the new sample
         self.plot_best_samples_boxplots()
