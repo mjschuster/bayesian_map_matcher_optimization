@@ -40,7 +40,7 @@ class PerformanceMeasure(object):
     And to allow isinstance tests with the PerformanceMeasure type.
     """
 
-    AVAILABLE_TYPES = ['LogisticTranslationErrorMeasure', 'LogisticMaximumErrorMeasure', 'MixerMeasure', 'NrMatchesMeasure']
+    AVAILABLE_TYPES = ['LogisticTranslationErrorMeasure', 'LogisticMaximumErrorMeasure', 'MixerMeasure', 'ZeroMeanMixerMeasure', 'NrMatchesMeasure']
 
     def __init__(self):
         """
@@ -78,6 +78,14 @@ class PerformanceMeasure(object):
         fig.savefig(path)
         fig.clf()
 
+    @property
+    def value_range(self):
+        """
+        The range in which this measure's values can be.
+        Returns a (min_bound, max_bound) tuple.
+        """
+        return (0, 1)
+
     @classmethod
     def from_dict(cls, measure_dict):
         if measure_dict['type'] == cls.AVAILABLE_TYPES[0]: # LogisticTranslationErrorMeasure
@@ -88,7 +96,11 @@ class PerformanceMeasure(object):
             error_measure = PerformanceMeasure.from_dict(measure_dict['error_measure'])
             matches_measure = PerformanceMeasure.from_dict(measure_dict['matches_measure'])
             return MixerMeasure(error_measure, matches_measure, measure_dict['matches_weight'])
-        elif measure_dict['type'] == cls.AVAILABLE_TYPES[3]: # NrMatchesMeasure
+        elif measure_dict['type'] == cls.AVAILABLE_TYPES[3]: # ZeroMeanMixerMeasure
+            error_measure = PerformanceMeasure.from_dict(measure_dict['error_measure'])
+            matches_measure = PerformanceMeasure.from_dict(measure_dict['matches_measure'])
+            return ZeroMeanMixerMeasure(error_measure, matches_measure, measure_dict['matches_weight'])
+        elif measure_dict['type'] == cls.AVAILABLE_TYPES[4]: # NrMatchesMeasure
             return NrMatchesMeasure(measure_dict['expected_nr_matches'])
         else:
             raise ValueError("Type not available", cls.AVAILABLE_TYPES)
@@ -163,7 +175,7 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
 
 class MixerMeasure(PerformanceMeasure):
     """
-    Mixes two other measures.
+    Mixes two measures, one for the nr of matches and one for the errors.
     """
 
     def __init__(self, error_measure, matches_measure, matches_weight):
@@ -180,6 +192,33 @@ class MixerMeasure(PerformanceMeasure):
 
     def __call__(self, sample):
         return (1 - self.matches_weight) * self.error_measure(sample) + self.matches_weight * self.matches_measure(sample)
+
+class ZeroMeanMixerMeasure(MixerMeasure):
+    """
+    Same as class MixerMeasure, but doesn't output a value from 0 to 1.
+    Instead, its value-range is translated so it is between -0.5 and 0.5.
+    May yield better results if the objective function's surrogate model assumes zero mean for unseen areas.
+    """
+
+    def __init__(self, error_measure, matches_measure, matches_weight):
+        """
+        Initialize with setting parameters
+        :param error_measure: Performance measure to measure the error(s) of a sample.
+        :param matches_measure: Performance measure to measure the number of matches of a sample.
+        :param matches_weight: The weight of matches_measure in [0,1]. The error_measure's weight will be 1-matches_weight.
+        """
+        super().__init__(error_measure, matches_measure, matches_weight)
+
+    def __call__(self, sample):
+        return super().__call__(sample) - 0.5
+
+    @property
+    def value_range(self):
+        """
+        The range in which this measure's values can be.
+        Returns a (min_bound, max_bound) tuple.
+        """
+        return (-0.5, 0.5)
 
 class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
     """

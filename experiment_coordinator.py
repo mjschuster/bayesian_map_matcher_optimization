@@ -111,7 +111,7 @@ class ExperimentCoordinator(object):
         :param param_display_name: The display name of the parameter, as given in the experiment's yaml file.
         """
         axis.set_xlim(self.eval_function.optimization_bounds[self._to_rosparam(param_display_name)])
-        axis.set_ylim(0,1)
+        axis.set_ylim(self.performance_measure.value_range)
         axis.set_xlabel(param_display_name)
         axis.set_ylabel(str(self.performance_measure))
         axis.yaxis.label.set_color('blue')
@@ -313,6 +313,7 @@ class ExperimentCoordinator(object):
         x = np.linspace(x_bounds[0] - OFFSET, x_bounds[1] + OFFSET, RESOLUTION)
         y_bounds = self.eval_function.optimization_bounds[self._to_rosparam(param_names[1])]
         y = np.linspace(y_bounds[0] - OFFSET, y_bounds[1] + OFFSET, RESOLUTION)
+        value_range = self.performance_measure.value_range
         # Set labels for all axes
         for ax in [sub_axes for sublist in axes for sub_axes in sublist]:
             ax.set_xlabel(param_names[0], fontsize=5)
@@ -323,12 +324,12 @@ class ExperimentCoordinator(object):
         # Prepare known samples plot
         samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
         if len(samples_x) > 0: # guard against crashes if no known samples exist in the plane we're currently looking at
-            plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot', edgecolor='', vmin=0, vmax=1)
+            plot = axes[0][0].scatter(samples_x, samples_y, c=samples_z, cmap='hot', edgecolor='', vmin=value_range[0], vmax=value_range[1])
             # set x,y axis bounds, only needed for the scatter plot
             axes[0][0].set_xlim(x_bounds[0] - OFFSET, x_bounds[1] + OFFSET)
             axes[0][0].set_ylim(y_bounds[0] - OFFSET, y_bounds[1] + OFFSET)
             axes[0][0].set_title("All Known Samples")
-            fig.colorbar(plot, ax=axes[0][0], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
+            fig.colorbar(plot, ax=axes[0][0], ticks=np.linspace(value_range[0], value_range[1], 11), label=str(self.performance_measure))
         ############
         # Prepare mean plot
         # Get observations known to the GPR
@@ -337,9 +338,9 @@ class ExperimentCoordinator(object):
         predictionspace = self._get_prediction_space(param_names, RESOLUTION)
         mean, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
         z_mean = np.reshape(mean, (RESOLUTION, RESOLUTION))
-        plot = axes[0][1].contourf(x, y, z_mean, levels=np.linspace(0, 1, RESOLUTION), **contour_kwargs)
+        plot = axes[0][1].contourf(x, y, z_mean, levels=np.linspace(value_range[0], value_range[1], RESOLUTION), **contour_kwargs)
         axes[0][1].set_title("Estimated Mean")
-        fig.colorbar(plot, ax=axes[0][1], ticks=np.linspace(0, 1, 11), label=str(self.performance_measure))
+        fig.colorbar(plot, ax=axes[0][1], ticks=np.linspace(value_range[0], value_range[1], 11), label=str(self.performance_measure))
         # plot all observations the GPR has
         axes[0][1].scatter(filtered_X.T[self._to_optimizer_id(param_names[0])],
                            filtered_X.T[self._to_optimizer_id(param_names[1])], marker='+', edgecolor='white')
@@ -404,7 +405,7 @@ class ExperimentCoordinator(object):
         # set limits
         ax_3d.set_xlim(self.eval_function.optimization_bounds[self._to_rosparam(param_names[0])])
         ax_3d.set_ylim(self.eval_function.optimization_bounds[self._to_rosparam(param_names[1])])
-        ax_3d.set_zlim=(0,1)
+        ax_3d.set_zlim=(self.performance_measure.value_range)
         # set labels
         ax_3d.set_xlabel(param_names[0])
         ax_3d.set_ylabel(param_names[1])
