@@ -840,7 +840,7 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Mode: Plot Metric <--")
             param_name = ' '.join(args.plot_metric)
             print("\tFor parameter '", param_name, "'", sep="")
-            experiment_coordinator.plot_metric_visualization1d("metric_visualization.svg", param_name)
+            experiment_coordinator.plot_metric_visualization1d("metric_visualization_" + param_name.replace(" ", "_") + ".svg", param_name)
             sys.exit()
 
         print("--> Mode: Experiment <--")
