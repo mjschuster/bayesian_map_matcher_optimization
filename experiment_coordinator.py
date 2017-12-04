@@ -564,7 +564,7 @@ class ExperimentCoordinator(object):
         print("\033[1;4;35mIteration", self.iteration, ":\033[0m")
         self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
         # Dump the gpr's state for later use (e.g. interactive plots)
-        pickle.dump(self, open(os.path.join(self._params['plots_directory'], "experiment_state" + self.iteration_string() + ".pkl"), 'wb'))
+        pickle.dump(self, open(os.path.join(self._params['plots_directory'], "experiment_state.pkl"), 'wb'))
         # plot this iteration's gpr state in 2d for all optimized parameters
         self.plot_all_single_param()
         # plot this iteration's gpr state in 3d for the first two parameters (only if there are more than one parameter)
