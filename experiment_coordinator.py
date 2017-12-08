@@ -730,20 +730,27 @@ if __name__ == '__main__': # don't execute when module is imported
         parser.add_argument('--3d-plot', '-3d',
                             dest='plot3d', nargs='+',
                             help="Loads the supplied experiment state pickle file(s) and opens interactive figures from their states. " +\
-                                  "This may require setting your backend to something that supports interactive mode." +\
+                                  "This may require setting your backend to something that supports interactive mode. " +\
                                   "(see ~/.config/matplotlib/matplotlibrc for example)")
         parser.add_argument('--plot-single', '-p1',
                             dest='plot_single', nargs='+',
-                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots." +\
+                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots. " +\
                                  "Have a look at ExperimentCoordinator's 'plot_all_single_param' method, for further information.")
         parser.add_argument('--plot-two', '-p2',
                             dest='plot_two', nargs='+',
-                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots." +\
+                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots. " +\
                                  "Have a look at ExperimentCoordinator's 'plot_all_two_params' method, for further information.")
         parser.add_argument('--plot-max', '-pmax',
                             dest='plot_max', nargs='+',
-                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots." +\
+                            help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots. " +\
                                  "Have a look at ExperimentCoordinator's 'plot_all_new_best_params' method, for further information.")
+        parser.add_argument('--add-new-param',
+                            dest='new_param', nargs='+',
+                            help="Utility command that can be used when a new parameter has been added to the map matcher. " +\
+                                 "Expects two arguments: First, a single string, corresponding to the rosparam name of the new parameter. " +\
+                                 "Second, that parameter's default value, which should induce the same map matcher behaviour as before the parameter was introduced. " +\
+                                 "This method will iterate over all samples in this experiment's sample database and add the new parameter with the given value to each sample. " +\
+                                 "The new parameter will only be added if it wasn't already present in the sample's parameter dict.")
         args = parser.parse_args()
 
         if args.plot3d:
@@ -841,6 +848,40 @@ if __name__ == '__main__': # don't execute when module is imported
             param_name = ' '.join(args.plot_metric)
             print("\tFor parameter '", param_name, "'", sep="")
             experiment_coordinator.plot_metric_visualization1d("metric_visualization_" + param_name.replace(" ", "_") + ".svg", param_name)
+            sys.exit()
+        if args.new_param:
+            print("--> Mode: New Parameter Patching <--")
+            print("Patching new parameter", args.new_param[0], "with default value", args.new_param[1])
+            if not len(args.new_param) == 2:
+                raise ValueError("new_param's length isn't 2. --add-new-param requires exactly two arguments (see -h for more information).")
+            # Create a list that contains all samples which don't contain the new parameter (new_param[0])
+            patch_samples_list = []
+            # and a member to save a single sample which already contains the new parameter, used for typecasting
+            other_sample = None
+            # fill the two variables above
+            for sample in experiment_coordinator.sample_db:
+                if not args.new_param[0] in sample.parameters.keys():
+                    patch_samples_list.append(sample)
+                elif other_sample is None:
+                    other_sample = sample
+            # check if there was a sample in the db to extract the type information
+            if other_sample is None:
+                raise RuntimeError("No sample in the db already has the new parameter. Can't go on with patching, since I don't know which type it should have. (fixme, maybe?)")
+            new_param_type = type(other_sample.parameters[args.new_param[0]])
+            print("Total number of samples that need to be patched:", len(patch_samples_list))
+            print(len(experiment_coordinator.sample_db) - len(patch_samples_list), "already seem to have that parameter.")
+            print("New parameter's type is", new_param_type)
+            print("Execute the patching routine? (y/n)")
+            if input() in ['y', 'Y', 'yes', 'Yes']:
+                for sample in patch_samples_list:
+                    # Get the hash to find the unpatched sample in the db
+                    sample_hash = evaluation_function.SampleDatabase.rosparam_hash(sample.parameters)
+                    # Patch the sample's parameters dict, casting the default value to the correct type
+                    sample.parameters[args.new_param[0]] = new_param_type(args.new_param[1])
+                    # Update the sample in the db (and its .pkl on disk)
+                    experiment_coordinator.sample_db.update_sample(sample_hash, sample)
+            else:
+                print("aborted.")
             sys.exit()
 
         print("--> Mode: Experiment <--")

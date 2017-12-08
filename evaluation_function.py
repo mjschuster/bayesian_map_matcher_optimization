@@ -235,7 +235,7 @@ class SampleDatabase(object):
     The sample object themselves aren't kept in memory, but are stored on disk as pickle files.
     They'll get loaded into when requested via __getitem__ like this: sample_db_obj[rosparams_of_requested_sample].
 
-    The databse-dict is indexed by the hashed parameters (hashed using the rosparam_hash function) and contains:
+    The database-dict is indexed by the hashed parameters (hashed using the rosparam_hash function) and contains:
         * pickle_name: The name of the pickled Sample object.
         * params: The complete rosparams dict used to generate this Sample. Its hash should be equal to the item's key.
     """
@@ -292,6 +292,17 @@ class SampleDatabase(object):
             # If that's the case, we'll use the name of the directory above, since 'results' is a bad name & probably not unique
             pickle_basename = os.path.basename(os.path.dirname(results_path))
         pickle_name = pickle_basename + ".pkl"
+        # save the generated sample. (both in the db and as pkl to disk)
+        self.add_sample(sample, pickle_name, override_existing)
+
+    def add_sample(self, sample, pickle_name, override_existing=False):
+        """
+        Adds a new Sample to the database and saves its pickled representation to disk.
+
+        :param sample: The Sample object itself.
+        :param pickle_name: The name under which the sample should be pickled.
+        :param override_existing: Whether an exception should be thrown if a sample with that name or hash already exists.
+        """
         self._pickle_sample(sample, pickle_name, override_existing)
         complete_rosparams = sample.parameters
         params_hashed = SampleDatabase.rosparam_hash(complete_rosparams)
@@ -311,9 +322,10 @@ class SampleDatabase(object):
         :param sample_identifier: A string which identifies the sample.
                                   Can either be a Sample's hash or
                                   the path where its pickled representation is stored on disk.
+        Returns the pickle_name, which may be useful e.g. when updating a sample.
         """
 
-        if os.path.splitext(sample_identifier)[1] == '.pkl': # sample_identifier points to the pickle file
+        if os.path.splitext(str(sample_identifier))[1] == '.pkl': # sample_identifier points to the pickle file
             pickle_name = sample_identifier
             # Get the sample's representation
             sample = self._unpickle_sample(pickle_name)
@@ -344,6 +356,22 @@ class SampleDatabase(object):
             
         # Only save the db at the end, after we know everything worked
         self._save()
+        return pickle_name
+
+    def update_sample(self, old_sample_identifier, updated_sample):
+        """
+        Updates a Sample that already exists in the database.
+        This also updates its pickled representation.
+
+        :param old_sample_identifier: A string which identifies the sample.
+                                      Can either be a Sample's hash or
+                                      the path where its pickled representation is stored on disk.
+        :param updated_sample: The updated Sample object.
+        """
+        # Remove the sample in its unpatched state
+        pickle_name = self.remove_sample(old_sample_identifier)
+        # add the updated sample
+        self.add_sample(updated_sample, pickle_name)
 
     def exists(self, complete_rosparams):
         """
@@ -351,6 +379,12 @@ class SampleDatabase(object):
         """
 
         return SampleDatabase.rosparam_hash(complete_rosparams) in self._db_dict.keys()
+
+    def __len__(self):
+        """
+        Returns the total number of samples stored in this database.
+        """
+        return len(self._db_dict)
 
     def __iter__(self):
         """
