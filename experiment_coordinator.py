@@ -751,6 +751,9 @@ if __name__ == '__main__': # don't execute when module is imported
                                  "Second, that parameter's default value, which should induce the same map matcher behaviour as before the parameter was introduced. " +\
                                  "This method will iterate over all samples in this experiment's sample database and add the new parameter with the given value to each sample. " +\
                                  "The new parameter will only be added if it wasn't already present in the sample's parameter dict.")
+        parser.add_argument('--resume',
+                            help="Expects a path to an old, pickled experiment state. Will try to resume that experiment." +\
+                                 "Take care: Changes to the code and to the parameters won't take effect when restarting an old experiment.")
         args = parser.parse_args()
 
         if args.plot3d:
@@ -776,6 +779,13 @@ if __name__ == '__main__': # don't execute when module is imported
             for path in args.plot_max:
                 experiment_coordinator = pickle.load(open(path, 'rb'))
                 experiment_coordinator.plot_all_new_best_params(plot_all_violin=True)
+            sys.exit()
+        if args.resume:
+            print("--> Resuming old experiment <--\n"+\
+                  "May cause unexpected behaviour: Code changes won't magically appear in the pickled experiment state and parameter changes won't take effect when resuming an old experiment.")
+            experiment_coordinator = pickle.load(open(args.resume, 'rb'))
+            while True:
+                experiment_coordinator.iterate()
             sys.exit()
 
         # Load the parameters from the yaml into a dict
