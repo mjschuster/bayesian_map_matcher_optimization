@@ -192,8 +192,15 @@ class MixerMeasure(PerformanceMeasure):
         self.matches_measure = matches_measure
         self.matches_weight = matches_weight
 
+    @property
+    def error_weight(self):
+        """
+        The weight of the error measure in [0,1].
+        """
+        return 1 - self.matches_weight
+
     def __call__(self, sample):
-        return (1 - self.matches_weight) * self.error_measure(sample) + self.matches_weight * self.matches_measure(sample)
+        return self.error_weight * self.error_measure(sample) + self.matches_weight * self.matches_measure(sample)
 
 class ZeroMeanMixerMeasure(MixerMeasure):
     """
