@@ -6,6 +6,7 @@ Only classes that end with Measure (not *Function classes) take a Sample as __ca
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as matplotlib
 
 def translation_to_rotation_error(translation_error, submap_size):
     """
@@ -318,6 +319,8 @@ class SinusTestFunction(PerformanceMeasure):
 
 if __name__ == '__main__': # don't execute when module is imported
     import argparse # for the cmd-line interface
+    matplotlib.rcParams['axes.labelsize'] = 24
+    matplotlib.rcParams['legend.fontsize'] = 18
 
     def error_multi_plot(path, max_relevant_errors, x_min, x_max, resolution=1000):
         x_space = np.linspace(x_min, x_max, resolution)
@@ -332,6 +335,7 @@ if __name__ == '__main__': # don't execute when module is imported
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(-1,1)
         ax.legend(loc='upper right')
+        fig.tight_layout()
         fig.savefig(path)
         fig.clf()
 
@@ -346,6 +350,7 @@ if __name__ == '__main__': # don't execute when module is imported
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(0,1)
         ax.legend(loc='lower right')
+        fig.tight_layout()
         fig.savefig(path)
         fig.clf()
 
