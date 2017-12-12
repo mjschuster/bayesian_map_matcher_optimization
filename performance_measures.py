@@ -132,23 +132,25 @@ class LogisticFunction(PerformanceMeasure):
 class LogisticTranslationErrorMeasure(LogisticFunction):
     """
     PerformanceMeasure that uses the logistic function to map possible translation errors between 0 and 1.
-    High translation errors will be mapped close to 0, low ones close to 1.
+    When considering single translation errors, ones close to max_relevant_error will be mapped to 0, bigger ones to negative numbers approaching -1.
+    The measure will return the sum of all of logistic_func(err_i) values, but will make sure the lowest value it returns is 0.
+    By allowing single, big outlier errors to be mapped to values smaller than 0, they can be optimized against more easily.
     """
-    def __init__(self, max_relevant_error, min_relevant_error=0):
+    def __init__(self, max_relevant_error, min_relevant_error=0.05):
         """
         Initialize with setting parameters
         :param max_relevant_error: The maximum translation error that should still be distinguishable from higher errors. (i.e. mapped not too close to 0)
-        :param min_relevant_error: Same for the minimum, defaults to 0.
+        :param min_relevant_error: Same for the minimum, defaults to 0.05.
         """
-        self.x_min_y_value = 0.98 # determines how close to 1 x_min gets mapped (x_max gets mapped to 1-x_min_y_value)
+        self.x_min_y_value = 0.98 # determines how close to 1 min_relevant_error gets mapped (max_relevant error always gets mapped to 0)
         self.min_relevant_error = float(min_relevant_error)
         self.max_relevant_error = float(max_relevant_error)
-        x0 = (self.max_relevant_error - self.min_relevant_error) / 2
-        # Find k by using point (max_relevant_error, x_min_y_value)
+        l = 2 # set l to 2, so the function goes from 1 to -1 with the strongest slope at f(max_relevant_error) = 0.
+        x0 = self.max_relevant_error
+        # Find k by using point (min_relevant_error, x_min_y_value)
         # Solved logistic function for k:
-        k = np.log(1 / ((1 / self.x_min_y_value) - 1) / x0 - self.max_relevant_error)
-        # min_relevant_error will fit, because of the function's symmetry and the given x0
-        super().__init__(1, x0, k)
+        k = - (np.log(-(l / (self.x_min_y_value - 1)) - 1)) / (self.min_relevant_error - self.max_relevant_error)
+        super().__init__(l, x0, k)
 
     def __call__(self, sample):
         if isinstance(sample, np.ndarray) or isinstance(sample, float): # Special case for plotting the function
@@ -168,8 +170,8 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         ax.scatter([self.min_relevant_error, self.max_relevant_error],
                    [self(self.min_relevant_error), self(self.max_relevant_error)],
                    c='r', label=u"${(" + str(round(self.min_relevant_error, 2)) + u"," + str(round(self(self.min_relevant_error), 2)) + "),(" + str(round(self.max_relevant_error, 2)) + u"," + str(round(self(self.max_relevant_error), 2)) + u")}$")
-        ax.legend(loc='lower left')
-        ax.set_ylim(0,1)
+        ax.legend(loc='lower right')
+        ax.set_ylim(-1,1)
         fig.savefig(path)
         fig.clf()
 
@@ -250,7 +252,8 @@ class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
         match_errors = [super(LogisticMaximumErrorMeasure, self).__call__(err) for err in considered_errors]
         # Sum them up and normalize with the number of matches
         if not sample.nr_matches == 0:
-            return sum(match_errors, 0) / sample.nr_matches
+            normalized_error_sum = sum(match_errors, 0) / sample.nr_matches
+            return min(0, normalized_error_sum) # guard against returning negative measure if all errors were really big
         else:
             return 0
 
