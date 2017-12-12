@@ -161,8 +161,8 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         # Guard against crash if no matches were made; Return 0 in that case
         if not sample.nr_matches == 0:
              # Sum them up and normalize with the number of matches
-             # min() guarda against negative measure value in case all errors were too big
-            return min(0, sum(match_errors, 0) / sample.nr_matches)
+             # max() guard against negative measure value in case all errors were too big
+            return max(0, sum(match_errors, 0) / sample.nr_matches)
         else:
             return 0
 
@@ -261,7 +261,7 @@ class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
         # Guard against crash if no matches were made; Return 0 in that case
         if not sample.nr_matches == 0:
             normalized_error_sum = sum(match_errors, 0) / sample.nr_matches
-            return min(0, normalized_error_sum) # guard against returning negative measure if all errors were really big
+            return max(0, normalized_error_sum) # guard against returning negative measure if all errors were really big
         else:
             return 0
 
