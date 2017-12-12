@@ -192,10 +192,11 @@ class ExperimentCoordinator(object):
     def best_samples_plot(self):
         """
         Creates a plot to visualize how the best known parameters evolved and how good they were.
-        Contains a subplot for the performance measure.
-        Contains a subplot for the number of matches.
-        Contains a subplot with boxplots for the translation errors.
-        Contains a subplot with boxplots for the rotation errors.
+        Contains subplots for:
+            the performance measure: Stacked bar plot for the two mixed components of the measure.
+            the number of matches: Simple scatter and line plot.
+            the translation errors: Boxplots to visualize the error distributions
+            the rotation errors: Boxplots to visualize the error distributions
         """
         fig, axes = plt.subplots(4, sharex=True, figsize=(10,12))
         fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
@@ -211,20 +212,42 @@ class ExperimentCoordinator(object):
         axes[0].set_ylabel(str(self.performance_measure))
         axes[0].yaxis.label.set_color('blue')
         axes[0].tick_params(axis='y', colors='blue')
-        axes[0].scatter(x_axis,
-                        [self.performance_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] + [self.performance_measure(init_sample)],
-                        color='blue')
+        # Get the weighted error performance measure value for all best_samples and for the initial parameter set
+        error_measure_data = [self.performance_measure.error_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] +\
+               [self.performance_measure.error_measure(init_sample)]
+        weighted_error_measure_data = [self.performance_measure.error_weight * e for e in error_measure_data]
+        BAR_WIDTH = 0.3 # Calculation below in .bar([..],..) is to center the boxes on the x-tick
+        axes[0].bar([x-BAR_WIDTH/2 for x in x_axis], weighted_error_measure_data, color='m', width=BAR_WIDTH,
+                    label=u"$\\upsilon(), w_{\\upsilon}=" + str(self.performance_measure.error_weight) + u"$") # plot bars for the error measure
+        # Add text for the value of the error_measure
+        for x, bar_top, val in zip(x_axis, weighted_error_measure_data, error_measure_data):
+            axes[0].text(x+BAR_WIDTH/2+0.02, bar_top/2-0.035, str(round(val,2)), color='m')
+        # Get the weighted matches performance measure value for all best_samples and for the initial parameter set
+        matches_measure_data = [self.performance_measure.matches_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] +\
+               [self.performance_measure.matches_measure(init_sample)]
+        weighted_matches_measure_data = [self.performance_measure.matches_weight * m for m in matches_measure_data]
+        axes[0].bar([x-BAR_WIDTH/2 for x in x_axis], weighted_matches_measure_data, color='red', width=BAR_WIDTH, bottom=weighted_error_measure_data,
+                    label=u"$\\epsilon(), w_{\\epsilon}=" + str(self.performance_measure.matches_weight) + u"$") # plot bars for the matches measure on top of the error measure
+        # Add text for the value of the matches_measure
+        axes[0].legend(loc='upper left')
+        for x, bar_top_err, bar_top_ma, val in zip(x_axis, weighted_error_measure_data, weighted_matches_measure_data, matches_measure_data):
+            axes[0].text(x+BAR_WIDTH/2+0.02, bar_top_err + (bar_top_ma/2)-0.035, str(round(val,2)), color='red')
+        # Get the complete performance measure value for all best_samples and for the initial parameter set
+        complete_measure_data = [self.performance_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] + [self.performance_measure(init_sample)]
+        # Add text for the value of the complete measure (the weighted sum)
+        for x, bar_top, val in zip(x_axis, [sum(x) for x in zip(weighted_error_measure_data, weighted_matches_measure_data)], complete_measure_data):
+            axes[0].text(x-BAR_WIDTH*1.6-0.02, bar_top-0.03, str(round(val,2)), color='blue')
         # Setup the axis for the number of matches (in red)
         axes[1].set_ylabel('Nr. of Matches')
         axes[1].yaxis.label.set_color('red')
         axes[1].tick_params(axis='y', colors='red')
         axes[1].ticklabel_format(useOffset=False) # Forbid offsetting y-axis values
-        axes[1].scatter(x_axis,
+        axes[1].scatter(x_axis, # plot points for nr of matches
                         [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
                         color='red')
-        axes[1].plot(x_axis,
-                        [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
-                        color='red')
+        axes[1].plot(x_axis, # connect points with a line to better see how they changed
+                     [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
+                     color='red')
         # Setup the axis for the translation error boxplots (in magenta)
         axes[2].set_ylabel(u"$Err_{translation}$ [m]")
         axes[2].yaxis.label.set_color('m')
@@ -232,10 +255,10 @@ class ExperimentCoordinator(object):
         axes[2].boxplot([best_sample_tuple[1].translation_errors for best_sample_tuple in self.best_samples] + [init_sample.translation_errors],
                         positions=x_axis)
         axes[2].set_xticks(x_axis, iterations)
-        # Setup the axis for the rotation error boxplots (in cyan)
+        # Setup the axis for the rotation error boxplots (in magenta)
         axes[3].set_ylabel(u"$Err_{rotation}$ [deg]")
-        axes[3].yaxis.label.set_color('c')
-        axes[3].tick_params(axis='y', colors='c')
+        axes[3].yaxis.label.set_color('m')
+        axes[3].tick_params(axis='y', colors='m')
         axes[3].boxplot([best_sample_tuple[1].rotation_errors for best_sample_tuple in self.best_samples] + [init_sample.rotation_errors],
                         positions=x_axis)
         axes[3].set_xticks(x_axis, iterations)
@@ -615,7 +638,6 @@ class ExperimentCoordinator(object):
             plot_path = os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string() + ".svg")
             self.plot_error_distribution(plot_path, self.max_sample, max_rotation_error, max_translation_error)
         else:
-            print(self.best_samples)
             # plot violin plots for all best samples
             for iteration, sample in self.best_samples:
                 plot_path = os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string(iteration) + ".svg")
