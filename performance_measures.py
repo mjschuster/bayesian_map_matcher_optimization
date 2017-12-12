@@ -158,9 +158,11 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
 
         # Put each translation error through the Logistic function (super().__call__)
         match_errors = [super(LogisticTranslationErrorMeasure, self).__call__(err_t) for err_t in sample.translation_errors]
-        # Sum them up and normalize with the number of matches
+        # Guard against crash if no matches were made; Return 0 in that case
         if not sample.nr_matches == 0:
-            return sum(match_errors, 0) / sample.nr_matches
+             # Sum them up and normalize with the number of matches
+             # min() guarda against negative measure value in case all errors were too big
+            return min(0, sum(match_errors, 0) / sample.nr_matches)
         else:
             return 0
 
@@ -231,22 +233,21 @@ class ZeroMeanMixerMeasure(MixerMeasure):
 
 class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
     """
-    PerformanceMeasure that uses the logistic function to map possible errors between 0 and 1.
-    High errors will be mapped close to 0, low ones close to 1.
+    Based on class LogisticTranslationErrorMeasure.
     This PerformanceMeasure considers both translation and rotation errors.
     Rotation errors will be turned into translation errors:
         By considering the maximum translation error that could've been caused by the rotation
         around the submap's origin with a given distance to the point farthest away from the origin. (submap size)
+    Then, the maximum of the translation error and the "turned-to-translation"-rotation error will be put into the LogisticTranslationErrorMeasure.
     """
-    def __init__(self, submap_size, max_relevant_error, min_relevant_error=0):
+    def __init__(self, submap_size, max_relevant_error):
         """
         Initialize with setting parameters
         :param submap_size: The size of each submap, used for turning rotation errors into translation errors.
-        :param max_relevant_error: The maximum translation error that should still be distinguishable from higher errors. (i.e. mapped not too close to 0)
-        :param min_relevant_error: Same for the minimum, defaults to 0.
+        :param max_relevant_error: The translation error that will be mapped to 0, higher ones will get negative values, lower ones positive values.
         """
         self.submap_size = submap_size
-        super().__init__(max_relevant_error, min_relevant_error)
+        super().__init__(max_relevant_error)
 
     def __call__(self, sample):
         if isinstance(sample, np.ndarray) or isinstance(sample, float): # Special case for plotting the function
@@ -257,7 +258,7 @@ class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
                              zip(sample.translation_errors,
                                  rotation_to_translation_error(sample.rotation_errors, self.submap_size))]
         match_errors = [super(LogisticMaximumErrorMeasure, self).__call__(err) for err in considered_errors]
-        # Sum them up and normalize with the number of matches
+        # Guard against crash if no matches were made; Return 0 in that case
         if not sample.nr_matches == 0:
             normalized_error_sum = sum(match_errors, 0) / sample.nr_matches
             return min(0, normalized_error_sum) # guard against returning negative measure if all errors were really big

@@ -189,7 +189,14 @@ class ExperimentCoordinator(object):
         print("\tSaved error distribution plot to", path)
         plt.close()
 
-    def plot_best_samples_boxplots(self):
+    def best_samples_plot(self):
+        """
+        Creates a plot to visualize how the best known parameters evolved and how good they were.
+        Contains a subplot for the performance measure.
+        Contains a subplot for the number of matches.
+        Contains a subplot with boxplots for the translation errors.
+        Contains a subplot with boxplots for the rotation errors.
+        """
         fig, axes = plt.subplots(4, sharex=True, figsize=(10,12))
         fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
         # make a list of iterations, to be used as x-axis labels
@@ -213,6 +220,9 @@ class ExperimentCoordinator(object):
         axes[1].tick_params(axis='y', colors='red')
         axes[1].ticklabel_format(useOffset=False) # Forbid offsetting y-axis values
         axes[1].scatter(x_axis,
+                        [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
+                        color='red')
+        axes[1].plot(x_axis,
                         [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
                         color='red')
         # Setup the axis for the translation error boxplots (in magenta)
@@ -615,7 +625,7 @@ class ExperimentCoordinator(object):
             self.plot_error_distribution(plot_path, self.initial_sample, max_rotation_error, max_translation_error, "initial")
 
         # create a new version of the boxplot which includes the new sample
-        self.plot_best_samples_boxplots()
+        self.best_samples_plot()
 
     def plot_all_two_params(self):
         """
