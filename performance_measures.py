@@ -115,7 +115,7 @@ class LogisticFunction(PerformanceMeasure):
         """
         Initialize with setting parameters
         :param l: Maximum the function approaches for x towards infinity.
-        :param x0: The point where the curve passes f(x)=0.5, and where it has a saddle point.
+        :param x0: The point where the curve passes f(x_0)=1-(l/2), and where it has a saddle point.
         :param k: Scales curve width.
         """
         super().__init__()
@@ -124,7 +124,7 @@ class LogisticFunction(PerformanceMeasure):
         self.k = float(k)
 
     def __str__(self):
-        return u"$1 - \\frac{" + str(self.l) + u"}{1 + e^{-" + str(round(self.k, 3)) + u" * (x - " + str(self.x0) + u")}}$"
+        return u"$1 - \\frac{" + str(self.l) + u"}{1 + e^{-" + str(round(self.k, 3)) + u" \\dot (x - " + str(self.x0) + u")}}$"
 
     def __call__(self, x):
         return 1 - self.l / (1 + np.exp(-self.k * (x - self.x0)))
@@ -256,31 +256,31 @@ class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
 
 class NrMatchesMeasure(PerformanceMeasure):
     """
-    Uses the function x / (a + x) to map the number of matches to [0,1).
+    Uses the function x / (k + x) to map the number of matches to [0,1).
     More matches means this measure gets closer to 1.
     """
     def __init__(self, expected_nr_matches):
         """
         :param expected_nr_matches: A number of matches which is already considered quite good for the dataset
-                                    Will be used to calculate a, so that the function passes point (a, 0.98)
+                                    Will be used to calculate k, so that the function passes point (k, 0.98)
         """
         self.expected_nr_matches = int(expected_nr_matches)
         # Can be used to tune how much space the measure has left for matches above the expected_nr_matches threshold
-        self.expected_nr_matches_y_value = 0.75
-        self.a = self.expected_nr_matches * (1 - self.expected_nr_matches_y_value) / self.expected_nr_matches_y_value
+        self.expected_nr_matches_y_value = 0.9
+        self.k = self.expected_nr_matches * (1 - self.expected_nr_matches_y_value) / self.expected_nr_matches_y_value
 
     def __str__(self):
-        return u"$\\frac{x}{" + str(round(self.a, 3)) + u" + x}$"
+        return u"$\\upsilon_k(m) = \\frac{m}{k + m}$"
 
     def __call__(self, sample):
         if isinstance(sample, np.ndarray) or isinstance(sample, int): # Special case for plotting the function
-            return sample / (self.a + sample)
+            return sample / (self.k + sample)
 
-        return sample.nr_matches / (self.a + sample.nr_matches)
+        return sample.nr_matches / (self.k + sample.nr_matches)
 
     def plot(self, path, x_min, x_max):
         fig, ax = self._prepare_plot(x_min, x_max)
-        ax.set_xlabel("x: Number of Matches")
+        ax.set_xlabel("m: Number of Matches")
         ax.scatter([self.expected_nr_matches],
                    [self(self.expected_nr_matches)],
                    c='r', label=u"${(" + str(round(self.expected_nr_matches, 2)) + u"," + str(round(self(self.expected_nr_matches), 2)) + ")}$")
@@ -308,10 +308,24 @@ class SinusTestFunction(PerformanceMeasure):
 if __name__ == '__main__': # don't execute when module is imported
     import argparse # for the cmd-line interface
 
+    def nr_matches_multi_plot(path, max_relevant_errors, x_min, x_max, resolution=1000):
+        measures = [NrMatchesMeasure(max_relevant_error) for max_relevant_error in max_relevant_errors]
+        x_space = np.linspace(x_min, x_max, resolution)
+        fig, ax = plt.subplots()
+        ax.set_xlabel(u"$m$")
+        ax.set_ylabel(str(measures[0]))
+        for measure in measures:
+            ax.plot(x_space, measure(x_space), label=u"$k=" + str(round(measure.k, 3)) + u"$")
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(0,1)
+        ax.legend(loc='lower right')
+        fig.savefig(path)
+        fig.clf()
+
     def command_line_interface():
         parser = argparse.ArgumentParser(description="tests performance measures")
-        parser.add_argument('type', help="Type of plot to create")
         parser.add_argument('path', help="Path for plot")
+        parser.add_argument('type', help="Type of plot to create")
         parser.add_argument('--min', help="x_min for plot range", required=True, type=float)
         parser.add_argument('--max', help="x_max for plot range", required=True, type=float)
         parser.add_argument('params', help="list of params, depends on chosen type", nargs='*')
@@ -329,6 +343,9 @@ if __name__ == '__main__': # don't execute when module is imported
             print("Measure for nr matches with expected nr matches =", args.params[0])
             l = NrMatchesMeasure(args.params[0])
             l.plot(args.path, args.min, args.max)
+        elif args.type == 'multiplot_matches':
+            print("Multiplot for nr matches with expected_nr_matches", args.params)
+            nr_matches_multi_plot(args.path, args.params, args.min, args.max)
         else:
             print("unknown type")
 
