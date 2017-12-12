@@ -124,7 +124,7 @@ class LogisticFunction(PerformanceMeasure):
         self.k = float(k)
 
     def __str__(self):
-        return u"$1 - \\frac{" + str(self.l) + u"}{1 + e^{-" + str(round(self.k, 3)) + u" \\dot (x - " + str(self.x0) + u")}}$"
+        return u"$\\epsilon^t_{k, x_0}(e^t_i) = 1 - \\frac{" + str(int(self.l)) + u"}{1 + e^{-k (x - x_0)}}$"
 
     def __call__(self, x):
         return 1 - self.l / (1 + np.exp(-self.k * (x - self.x0)))
@@ -267,27 +267,27 @@ class LogisticMaximumErrorMeasure(LogisticTranslationErrorMeasure):
 
 class NrMatchesMeasure(PerformanceMeasure):
     """
-    Uses the function x / (k + x) to map the number of matches to [0,1).
+    Uses the function x / (a + x) to map the number of matches to [0,1).
     More matches means this measure gets closer to 1.
     """
     def __init__(self, expected_nr_matches):
         """
         :param expected_nr_matches: A number of matches which is already considered quite good for the dataset
-                                    Will be used to calculate k, so that the function passes point (k, 0.98)
+                                    Will be used to calculate a, so that the function passes point (a, 0.98)
         """
         self.expected_nr_matches = int(expected_nr_matches)
         # Can be used to tune how much space the measure has left for matches above the expected_nr_matches threshold
         self.expected_nr_matches_y_value = 0.9
-        self.k = self.expected_nr_matches * (1 - self.expected_nr_matches_y_value) / self.expected_nr_matches_y_value
+        self.a = self.expected_nr_matches * (1 - self.expected_nr_matches_y_value) / self.expected_nr_matches_y_value
 
     def __str__(self):
-        return u"$\\upsilon_k(m) = \\frac{m}{k + m}$"
+        return u"$\\upsilon_a(m) = \\frac{m}{a + m}$"
 
     def __call__(self, sample):
         if isinstance(sample, np.ndarray) or isinstance(sample, int): # Special case for plotting the function
-            return sample / (self.k + sample)
+            return sample / (self.a + sample)
 
-        return sample.nr_matches / (self.k + sample.nr_matches)
+        return sample.nr_matches / (self.a + sample.nr_matches)
 
     def plot(self, path, x_min, x_max):
         fig, ax = self._prepare_plot(x_min, x_max)
@@ -319,14 +319,30 @@ class SinusTestFunction(PerformanceMeasure):
 if __name__ == '__main__': # don't execute when module is imported
     import argparse # for the cmd-line interface
 
-    def nr_matches_multi_plot(path, max_relevant_errors, x_min, x_max, resolution=1000):
-        measures = [NrMatchesMeasure(max_relevant_error) for max_relevant_error in max_relevant_errors]
+    def error_multi_plot(path, max_relevant_errors, x_min, x_max, resolution=1000):
+        x_space = np.linspace(x_min, x_max, resolution)
+        fig, ax = plt.subplots()
+        ax.set_xlabel(u"$e^t_i$")
+        for max_relevant_error in max_relevant_errors:
+            measure = LogisticTranslationErrorMeasure(max_relevant_error)
+            ax.plot(x_space, measure(x_space), label=u"$k=" + str(round(measure.k, 2)) + u",$ $x_0=" + str(round(measure.x0,2)) + u"$")
+        ax.axhline(0, color='black') # line at y=0
+        ax.axvline(0, color='black') # line at x=0
+        ax.set_ylabel(str(measure))
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(-1,1)
+        ax.legend(loc='upper right')
+        fig.savefig(path)
+        fig.clf()
+
+    def nr_matches_multi_plot(path, expected_nr_matches, x_min, x_max, resolution=1000):
+        measures = [NrMatchesMeasure(e_m) for e_m in expected_nr_matches]
         x_space = np.linspace(x_min, x_max, resolution)
         fig, ax = plt.subplots()
         ax.set_xlabel(u"$m$")
         ax.set_ylabel(str(measures[0]))
         for measure in measures:
-            ax.plot(x_space, measure(x_space), label=u"$k=" + str(round(measure.k, 3)) + u"$")
+            ax.plot(x_space, measure(x_space), label=u"$a=" + str(round(measure.a, 2)) + u"$")
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(0,1)
         ax.legend(loc='lower right')
@@ -347,8 +363,8 @@ if __name__ == '__main__': # don't execute when module is imported
             l = LogisticFunction(x0 = args.params[0], k=args.params[1])
             l.plot(args.path, args.min, args.max)
         elif args.type == 'logistic_tra':
-            print("Logistic translation measure with max_relevant_error =", args.params[0])
-            l = LogisticTranslationErrorMeasure(max_relevant_error = args.params[0])
+            print("Logistic translation measure with max_relevant_error =", args.params[0], "min_relevant_error =", args.params[1])
+            l = LogisticTranslationErrorMeasure(max_relevant_error = args.params[0], min_relevant_error = args.params[1])
             l.plot(args.path, args.min, args.max)
         elif args.type == 'nr_matches':
             print("Measure for nr matches with expected nr matches =", args.params[0])
@@ -357,6 +373,9 @@ if __name__ == '__main__': # don't execute when module is imported
         elif args.type == 'multiplot_matches':
             print("Multiplot for nr matches with expected_nr_matches", args.params)
             nr_matches_multi_plot(args.path, args.params, args.min, args.max)
+        elif args.type == 'multiplot_errors':
+            print("Multiplot for errors with max_relevant_errors", args.params)
+            error_multi_plot(args.path, args.params, args.min, args.max)
         else:
             print("unknown type")
 
