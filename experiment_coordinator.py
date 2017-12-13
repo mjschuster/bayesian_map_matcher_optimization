@@ -218,7 +218,7 @@ class ExperimentCoordinator(object):
         weighted_error_measure_data = [self.performance_measure.error_weight * e for e in error_measure_data]
         BAR_WIDTH = 0.3 # Calculation below in .bar([..],..) is to center the boxes on the x-tick
         axes[0].bar([x-BAR_WIDTH/2 for x in x_axis], weighted_error_measure_data, color='m', width=BAR_WIDTH,
-                    label=u"$\\upsilon(), w_{\\upsilon}=" + str(self.performance_measure.error_weight) + u"$") # plot bars for the error measure
+                    label=u"$\\epsilon(), w_{\\epsilon}=" + str(self.performance_measure.error_weight) + u"$") # plot bars for the error measure
         # Add text for the value of the error_measure
         for x, bar_top, val in zip(x_axis, weighted_error_measure_data, error_measure_data):
             axes[0].text(x+BAR_WIDTH/2+0.02, bar_top/2-0.035, str(round(val,2)), color='m')
@@ -227,7 +227,7 @@ class ExperimentCoordinator(object):
                [self.performance_measure.matches_measure(init_sample)]
         weighted_matches_measure_data = [self.performance_measure.matches_weight * m for m in matches_measure_data]
         axes[0].bar([x-BAR_WIDTH/2 for x in x_axis], weighted_matches_measure_data, color='red', width=BAR_WIDTH, bottom=weighted_error_measure_data,
-                    label=u"$\\epsilon(), w_{\\epsilon}=" + str(self.performance_measure.matches_weight) + u"$") # plot bars for the matches measure on top of the error measure
+                    label=u"$\\upsilon(), w_{\\upsilon}=" + str(self.performance_measure.matches_weight) + u"$") # plot bars for the matches measure on top of the error measure
         # Add text for the value of the matches_measure
         axes[0].legend(loc='upper left')
         for x, bar_top_err, bar_top_ma, val in zip(x_axis, weighted_error_measure_data, weighted_matches_measure_data, matches_measure_data):
@@ -237,6 +237,7 @@ class ExperimentCoordinator(object):
         # Add text for the value of the complete measure (the weighted sum)
         for x, bar_top, val in zip(x_axis, [sum(x) for x in zip(weighted_error_measure_data, weighted_matches_measure_data)], complete_measure_data):
             axes[0].text(x-BAR_WIDTH*1.6-0.02, bar_top-0.03, str(round(val,2)), color='blue')
+        axes[0].set_ylim(0,1)
         # Setup the axis for the number of matches (in red)
         axes[1].set_ylabel('Nr. of Matches')
         axes[1].yaxis.label.set_color('red')
