@@ -1,3 +1,8 @@
+##########################################################################
+# Copyright (c) 2017 German Aerospace Center (DLR). All rights reserved. #
+# SPDX-License-Identifier: BSD-2-Clause                                  #
+##########################################################################
+
 import datetime
 import sys
 import rosparam

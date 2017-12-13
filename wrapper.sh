@@ -1,4 +1,8 @@
 #! /usr/bin/env bash
+##########################################################################
+# Copyright (c) 2017 German Aerospace Center (DLR). All rights reserved. #
+# SPDX-License-Identifier: BSD-2-Clause                                  #
+##########################################################################
 
 # Helper script for running the experiment_coordinator.py script with a fixed PYTHONHASHSEED.
 

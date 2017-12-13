@@ -1,4 +1,8 @@
 #! /usr/bin/env python3
+##########################################################################
+# Copyright (c) 2017 German Aerospace Center (DLR). All rights reserved. #
+# SPDX-License-Identifier: BSD-2-Clause                                  #
+##########################################################################
 
 # Local imports
 import evaluation_function

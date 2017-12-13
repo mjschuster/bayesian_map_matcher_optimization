@@ -1,3 +1,8 @@
+##########################################################################
+# Copyright (c) 2017 German Aerospace Center (DLR). All rights reserved. #
+# SPDX-License-Identifier: BSD-2-Clause                                  #
+##########################################################################
+
 """
 Contains the code for modelling the EvaluationFunction via discrete samples.
 
