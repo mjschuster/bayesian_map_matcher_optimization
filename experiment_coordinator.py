@@ -11,6 +11,7 @@ import performance_measures
 # Foreign packages
 import pickle
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from mpl_toolkits.mplot3d import axes3d # required for 3d plots
 import numpy as np
 import os
@@ -191,6 +192,99 @@ class ExperimentCoordinator(object):
         path = os.path.join(self._params['plots_directory'], plot_name)
         fig.savefig(path)
         print("\tSaved error distribution plot to", path)
+        plt.close()
+
+    def query_points_plot(self):
+        """
+        Creates a Parallel Coordinate Plot (PCP) to visualize the locations in parameter-space
+        at which the optimizer chose to place its queries.
+        Each parallel axis represents one paramater and each line represents one sample (or query point).
+
+        Based on code from
+        https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib
+        """
+        # create a temporary throwaway contourplot, so creating a colorbar further down the line is possible
+        hack = plt.contourf([[0,0],[0,0]], np.linspace(0, 1, 11), cmap='jet')
+        colormap = plt.get_cmap('jet')
+        plt.clf() # throw away the contourf
+
+        x = range(len(self.optimizer.X[0]))
+        fig, axes = plt.subplots(1, len(x)-1, sharey=False)
+        
+        # Holds tuples (min, max, range) for each parameter
+        paramspace_bounds = dict()
+        for param in self.optimization_defs.keys():
+            # Get the definitions of the current param
+            defs_dict = self.optimization_defs[param]
+            # Create tuple (min, max, range) for normalizing data
+            mn = float(defs_dict['min_bound'])
+            mx = float(defs_dict['max_bound'])
+            paramspace_bounds[param] = (mn, mx, mx-mn)
+
+        # Acquire and normalize data, ordered exactly like the keys of paramspace_bounds
+        normalized_data = list()
+        normalized_data_performance = list()
+        for sample, performance in zip(self.optimizer.X, self.optimizer.Y):
+            normalized_sample_data = list()
+            for param, bounds in paramspace_bounds.items():
+                val = sample[self._to_optimizer_id(param)]
+                normalized_sample_data.append((val - bounds[0]) / bounds[2])
+            normalized_data.append(normalized_sample_data)
+            normalized_data_performance.append(performance)
+
+        # Plot the data on the subplots
+        for ax_id, ax in enumerate(axes):
+            for data, performance in zip(normalized_data, normalized_data_performance):
+                ax.plot(x, data, color=colormap(performance))
+            ax.set_xlim([x[ax_id], x[ax_id+1]])
+
+        # Set the x axis ticks
+        for (paramspace_bound, ax,xx) in zip(paramspace_bounds.items(), axes, x[:-1]):
+            ax.xaxis.set_major_locator(ticker.FixedLocator([xx]))
+            ticks = len(ax.get_yticklabels())
+            labels = list()
+            step = paramspace_bound[1][2] / (ticks - 1)
+            mn   = paramspace_bound[1][0]
+            for i in range(ticks):
+                v = mn + i*step
+                labels.append('%4.2f' % v)
+            ax.set_yticklabels(labels)
+            # set labels
+            ax.set_xlabel(paramspace_bound[0])
+            y_coord = xx%2 # Alternate between top and bottom
+            OFFSET_FROM_FIG = 0.05
+            y_coord += (OFFSET_FROM_FIG + 0.025) if xx%2 == 1 else -OFFSET_FROM_FIG # offset away from the rest of the figure
+            # Alternate extra offset so labels don't overlap
+            OFFSET_FROM_LABELS = 0.025
+            y_coord += OFFSET_FROM_LABELS if (xx%4) > 1 else -OFFSET_FROM_LABELS
+            ax.xaxis.set_label_coords(0, y_coord) # x_coord is 0, since those coordinates are relative to the ax
+            ax.tick_params(axis='x', which='both', bottom='off', top='off', labelbottom='off') # turn off the normal xticks
+
+        # add a color bar 
+        #fig.colorbar(hack, ax=axes.ravel().tolist(), label=str(self.performance_measure)) # currently the positioning is broken
+
+        # Move the final axis' ticks to the right-hand side
+        ax = plt.twinx(axes[-1])
+        ax.xaxis.set_major_locator(ticker.FixedLocator([x[-2], x[-1]]))
+        ticks = len(ax.get_yticklabels())
+        step = list(paramspace_bounds.values())[-1][2] / (ticks - 1)
+        mn   = list(paramspace_bounds.values())[-1][0]
+        labels = ['%4.2f' % (mn + i*step) for i in range(ticks)]
+        ax.set_yticklabels(labels)
+        # set label
+        ax.set_xlabel(list(paramspace_bounds.keys())[-1])
+        y_coord = x[-1]%2 # Alternate between top and bottom
+        y_coord += (OFFSET_FROM_FIG + 0.025) if x[-1]%2 == 1 else -OFFSET_FROM_FIG # offset away from the rest of the figure
+        y_coord += OFFSET_FROM_LABELS if (x[-1]%4) > 1 else -OFFSET_FROM_LABELS
+        ax.xaxis.set_label_coords(0, y_coord) # x_coord is 0, since those coordinates are relative to the ax
+
+        # Stack the subplots 
+        plt.subplots_adjust(wspace=0)
+
+        # Save and close
+        path = os.path.join(self._params['plots_directory'], "query_points_pcp_iteration" + self.iteration_string() + ".svg")
+        fig.savefig(path)
+        print("\tSaved PCP of sample locations to", path)
         plt.close()
 
     def best_samples_plot(self):
@@ -619,6 +713,7 @@ class ExperimentCoordinator(object):
             self.best_samples.append((self.iteration, self.max_sample))
             self.plot_all_new_best_params()
         self.output_sampled_params_table() # output a markdown table with all sampled params
+        self.query_points_plot() # output a pcp with lines for each sampled param
         # increase iteration counter
         self.iteration += 1
 
@@ -781,6 +876,8 @@ if __name__ == '__main__': # don't execute when module is imported
                             dest='plot_max', nargs='+',
                             help="Loads the supplied experiment state pickle file(s) and plots their contents in 'single' plots. " +\
                                  "Have a look at ExperimentCoordinator's 'plot_all_new_best_params' method, for further information.")
+        parser.add_argument('--plot-queries', '-pq', dest='plot_queries',
+                            help="Loads the supplied experiment state pickle file and plots a PCP visualizing query point locations in param-space.")
         parser.add_argument('--add-new-param',
                             dest='new_param', nargs='+',
                             help="Utility command that can be used when a new parameter has been added to the map matcher. " +\
@@ -816,6 +913,11 @@ if __name__ == '__main__': # don't execute when module is imported
             for path in args.plot_max:
                 experiment_coordinator = pickle.load(open(path, 'rb'))
                 experiment_coordinator.plot_all_new_best_params(plot_all_violin=True)
+            sys.exit()
+        if args.plot_queries:
+            print("--> Mode: Plot Queries <--")
+            experiment_coordinator = pickle.load(open(args.plot_queries, 'rb'))
+            experiment_coordinator.query_points_plot()
             sys.exit()
         if args.resume:
             print("--> Resuming old experiment <--\n"+\
