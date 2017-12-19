@@ -40,6 +40,8 @@ class ExperimentCoordinator(object):
         :param relpath_root: Basepath for all (other) relative paths in the params_dict.
         """
         self.iteration = 0 # Holds the current iteration's number
+        # Set before iterating to use the fine_tune kappa value (should be lower, to focus on exploitation)
+        self.fine_tune = False
         # Stores all discovered "best samples" during the experiment as tuples of (iteration, sample)
         self.best_samples = list()
         self.max_performance_measure = 0 # Holds the currently best known performance measure score
@@ -74,14 +76,9 @@ class ExperimentCoordinator(object):
         print("Setting up EvaluationFunction...")
         self.optimization_defs = self._params['optimization_definitions']
         default_rosparams = rosparam.load_file(rosparams_path)[0][0]
-        opt_bounds = dict()
-        for p_name, p_defs in self.optimization_defs.items():
-            opt_bounds[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
-            print("\tOptimizing parameter '", p_name, "' as rosparam '", p_defs['rosparam_name'],\
-                  "' in compact set [", p_defs['min_bound'], ", ", p_defs['max_bound'], "]", sep="")
         self.performance_measure = performance_measures.PerformanceMeasure.from_dict(self._params['performance_measure'])
         self.eval_function = evaluation_function.EvaluationFunction(self.sample_db, default_rosparams,
-                                                                    opt_bounds,
+                                                                    self.opt_bounds,
                                                                     self.performance_measure,
                                                                     self._params['rounding_decimal_places'])
         ###########
@@ -90,7 +87,7 @@ class ExperimentCoordinator(object):
         ###########
         print("Setting up Optimizer...")
         # Create the optimizer object
-        self.optimizer = BayesianOptimization(self.eval_function.evaluate, opt_bounds, verbose=0)
+        self.optimizer = BayesianOptimization(self.eval_function.evaluate, self.opt_bounds, verbose=0)
         # Create a kwargs member for passing to the maximize method (see iterate())
         # Those parameters will be passed to the GPR member of the optimizer
         self.gpr_kwargs = {'alpha': self._params['gpr_params']['observation_noise']
@@ -282,7 +279,7 @@ class ExperimentCoordinator(object):
         plt.subplots_adjust(wspace=0)
 
         # Save and close
-        path = os.path.join(self._params['plots_directory'], "query_points_pcp_iteration" + self.iteration_string() + ".svg")
+        path = os.path.join(self._params['plots_directory'], "query_points_pcp_iteration_" + self.iteration_string() + ".svg")
         fig.savefig(path)
         print("\tSaved PCP of sample locations to", path)
         plt.close()
@@ -681,20 +678,55 @@ class ExperimentCoordinator(object):
         else:
             return path
 
+    def grid_search(self):
+        """
+        Only usable when optimizing a single parameter.
+        Performs a grid search in the parameter space, ignoring the acquisition function and performance measures.
+        The grid search starts at the min_bound, according to the optimization_defs.
+        A sample is drawn for each i*step_size, until that value gets bigger than the 
+        max_bound from the optimization_defs.
+        """
+        # error handling
+        if not len(self.optimization_defs) == 1:
+            raise RuntimeError("grid search method only allowed when optimizing a single parameter")
+        if not 'grid_search_step_size' in self._params['optimizer_initialization'].keys():
+            raise RuntimeError("Missing required parameter in experiment_yaml: 'grid_search_step_size'")
+        
+        display_name, p_dict = list(self.optimization_defs.items())[0]
+        rosparam_name = p_dict['rosparam_name']
+        min_bound = p_dict['min_bound']
+        max_bound = p_dict['max_bound']
+        print("Performing grid search on parameter", display_name, "(aka", rosparam_name, ").")
+        for step_size in self._params['optimizer_initialization']['grid_search_step_size']:
+            print("Setting step size to", step_size)
+            paramspace_grid = {rosparam_name: np.arange(min_bound, max_bound + step_size, step_size)}
+            print("Querying at", len(paramspace_grid[rosparam_name]), "locations:")
+            print(paramspace_grid)
+            self.optimizer.explore(paramspace_grid)
+            # just fit the gp hyperparams to the data given via explore, don't choose new samples
+            self.optimizer.maximize(init_points=0, n_iter=0, kappa=0, **self.gpr_kwargs)
+            self.plot_gpr_single_param(display_name.replace(" ", "_") + "_step_size_" + str(step_size) + ".svg", display_name)
+            # reset optimizer
+            self.optimizer = BayesianOptimization(self.eval_function.evaluate, self.opt_bounds, verbose=0)
+
     def iterate(self):
         """
         Runs one iteration of the system
         """
         if 'optimizer_params' in self._params.keys():
-            init_points = self._params['optimizer_params']['pre_iteration_random_points']
-            n_iter = self._params['optimizer_params']['samples_per_iteration']
-            kappa = self._params['optimizer_params']['kappa']
+            opt_params_dict = self._params['optimizer_params']
+            init_points = opt_params_dict.get('pre_iteration_random_points', 0)
+            n_iter = opt_params_dict.get('samples_per_iteration', 1)
+            kappa = opt_params_dict.get('kappa', 2)
+            kappa_fine_tuning = opt_params_dict.get('kappa_fine_tuning', 1)
         else:
             init_points = 0
             n_iter = 1
             kappa = 2
-        print("\033[1;4;35mIteration", self.iteration, ":\033[0m")
-        self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa, **self.gpr_kwargs)
+            kappa_fine_tuning = 1
+
+        print("\033[1;4;35m", self.iteration_string(), ":\033[0m", sep="")
+        self.optimizer.maximize(init_points=init_points, n_iter=n_iter, kappa=kappa if not self.fine_tune else kappa_fine_tuning, **self.gpr_kwargs)
         # Dump the gpr's state for later use (e.g. interactive plots)
         pickle.dump(self, open(os.path.join(self._params['plots_directory'], "experiment_state.pkl"), 'wb'))
         # plot this iteration's gpr state in 2d for all optimized parameters
@@ -708,12 +740,13 @@ class ExperimentCoordinator(object):
             print("\t\033[1;35mNew maximum found, outputting params and plots!\033[0m")
             self.max_performance_measure = self.optimizer.res['max']['max_val']
             # Dump the best parameter set currently known by the optimizer
-            yaml.dump(self.max_rosparams, open("best_rosparams" + self.iteration_string() + ".yaml", 'w'))
+            yaml.dump(self.max_rosparams, open("best_rosparams_" + self.iteration_string() + ".yaml", 'w'))
             # store the best known sample in the best_samples dict, for boxplots
             self.best_samples.append((self.iteration, self.max_sample))
             self.plot_all_new_best_params()
         self.output_sampled_params_table() # output a markdown table with all sampled params
-        self.query_points_plot() # output a pcp with lines for each sampled param
+        if len(display_names) > 1:
+            self.query_points_plot() # output a pcp with lines for each sampled param
         # increase iteration counter
         self.iteration += 1
 
@@ -735,12 +768,12 @@ class ExperimentCoordinator(object):
 
         if not plot_all_violin:
             # violin plot of the new best sample
-            plot_path = os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string() + ".svg")
+            plot_path = os.path.join(self._params['plots_directory'], "violin_plot_" + self.iteration_string() + ".svg")
             self.plot_error_distribution(plot_path, self.max_sample, max_rotation_error, max_translation_error)
         else:
             # plot violin plots for all best samples
             for iteration, sample in self.best_samples:
-                plot_path = os.path.join(self._params['plots_directory'], "violin_plot" + self.iteration_string(iteration) + ".svg")
+                plot_path = os.path.join(self._params['plots_directory'], "violin_plot_" + self.iteration_string(iteration) + ".svg")
                 self.plot_error_distribution(plot_path, sample, max_rotation_error, max_translation_error, iteration)
             # also (re-)plot the initial params distribution
             plot_path = os.path.join(self._params['plots_directory'], "violin_plot_initial.svg")
@@ -756,7 +789,7 @@ class ExperimentCoordinator(object):
         """
         display_names = list(self._params['optimization_definitions'].keys())
         for display_name_pairs in itertools.combinations(display_names, 2):
-            two_param_plot_name_prefix = display_name_pairs[0].replace(" ", "_") + "_" + display_name_pairs[1].replace(" ", "_") + self.iteration_string() + ".svg"
+            two_param_plot_name_prefix = display_name_pairs[0].replace(" ", "_") + "_" + display_name_pairs[1].replace(" ", "_") + "_" + self.iteration_string() + ".svg"
             self.plot_gpr_two_param_3d("3d_" + two_param_plot_name_prefix, display_name_pairs)
             self.plot_gpr_two_param_contour("contour_" + two_param_plot_name_prefix, display_name_pairs)
 
@@ -767,18 +800,33 @@ class ExperimentCoordinator(object):
         """
         display_names = list(self._params['optimization_definitions'].keys())
         for display_name in display_names:
-            self.plot_gpr_single_param(display_name.replace(" ", "_") + self.iteration_string() + ".svg", display_name)
+            self.plot_gpr_single_param(display_name.replace(" ", "_") + "_" + self.iteration_string() + ".svg", display_name)
 
     def iteration_string(self, iteration=None):
         """
         Creates a string to identify an iteration, mainly used for naming plots.
-        Returns a string of form "_DDDDD_iteration", with DDDDD being the iteration's number, with prefixed zeros, if necessary.
+        Returns a string of form "DDDDD_iteration", with DDDDD being the iteration's number, with prefixed zeros, if necessary.
+        Or "DDDDD_iteration_finetuned", if finetuning is active.
 
         :param iteration: The iteration number as an integer, or None. If None, the current iteration (self.iteration) is used.
         """
         if iteration is None:
             iteration = self.iteration
-        return "_" + str(iteration).zfill(5) + "_iteration"
+        fine_tune_suffix = ""
+        if self.fine_tune:
+            fine_tune_suffix = "_finetuned"
+        return str(iteration).zfill(5) + "_iteration" + fine_tune_suffix
+
+    @property
+    def opt_bounds(self):
+        """
+        Returns a dict of optimization bounds.
+        It's indexed via rosparam_name and contains a tuple (min, max) bounds.
+        """
+        opt_bounds = dict()
+        for p_name, p_defs in self.optimization_defs.items():
+            opt_bounds[p_defs['rosparam_name']] = (p_defs['min_bound'], p_defs['max_bound'])
+        return opt_bounds
 
     @property
     def initial_sample(self):
@@ -841,6 +889,9 @@ if __name__ == '__main__': # don't execute when module is imported
         parser = argparse.ArgumentParser(description=description_string)
         parser.add_argument('experiment_yaml',
                             help="Path to the yaml file which defines all parameters of one experiment run.")
+        parser.add_argument('--fine-tune', '-ft',
+                            dest='fine_tune', action='store_true',
+                            help="Lets the optimizer use kappa_fine_tuning to rather improve upon the current known maximum.")
         parser.add_argument('--list-all-samples', '-la',
                             dest='list_all_samples', action='store_true',
                             help="Lists all samples available in the database and exits.")
@@ -923,6 +974,7 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Resuming old experiment <--\n"+\
                   "May cause unexpected behaviour: Code changes won't magically appear in the pickled experiment state and parameter changes won't take effect when resuming an old experiment.")
             experiment_coordinator = pickle.load(open(args.resume, 'rb'))
+            experiment_coordinator.fine_tune = args.fine_tune # set the fine_tune flag if the user started this script with --fine-tune
             while True:
                 experiment_coordinator.iterate()
             sys.exit()
@@ -1033,8 +1085,13 @@ if __name__ == '__main__': # don't execute when module is imported
                 print("aborted.")
             sys.exit()
 
-        print("--> Mode: Experiment <--")
-        experiment_coordinator.initialize_optimizer()
+        if isinstance(experiment_coordinator._params['optimizer_initialization'], list):
+            print("--> Mode: Standard Experiment <--")
+            experiment_coordinator.initialize_optimizer()
+        else:
+            print("--> Mode: Grid Search Experiment <--")
+            experiment_coordinator.grid_search()
+            sys.exit()
         while True:
             experiment_coordinator.iterate()
 
