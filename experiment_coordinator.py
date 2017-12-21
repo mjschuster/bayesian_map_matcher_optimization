@@ -287,143 +287,140 @@ class ExperimentCoordinator(object):
     def best_samples_plot(self):
         """
         Creates a plot to visualize how the best known parameters evolved and how good they were.
+        Convenience wrapper around samples_plot, see its doc for more details.
+        """
+        # make a list of iterations, to be used as x-axis tick labels
+        iterations = [best_sample_tuple[0] for best_sample_tuple in self.best_samples]
+        # add another element for the inital params set
+        iterations.append("baseline")
+        # make a list of corresponding values from 0 to n-1
+        x_axis = range(len(iterations))
+        # get the best samples
+        best_samples = [best_sample_tuple[1] for best_sample_tuple in self.best_samples]
+        # add the initial sample
+        best_samples.append(self.initial_sample)
+        # create the plot and store fix,axes for further fine tuning and saving
+        fig, axes = self._samples_plot(x_axis_ticks=iterations, samples=best_samples, x_axis_pos=x_axis, bar_width=0.3)
+        fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
+        axes[3].set_xlabel("iteration nr.")
+
+        # Save and close
+        path = os.path.join(self._params['plots_directory'], "best_samples_boxplot.svg")
+        fig.savefig(path)
+        print("\tSaved boxplots of best samples to", path)
+        plt.close(fig)
+
+    def _samples_plot(self, x_axis_ticks, samples, x_axis_pos=None, show_pm_values=True, bar_width=1, xticklabels_spacing=1):
+        """
+        Creates a plot to visualize the data contained in a set of samples
+        and how their performance measure value came together.
         Contains subplots for:
             the performance measure: Stacked bar plot for the two mixed components of the measure.
             the number of matches: Simple scatter and line plot.
             the translation errors: Boxplots to visualize the error distributions
             the rotation errors: Boxplots to visualize the error distributions
+        Use axes[3].set_xlabel("label") on the returned axes, to set a label for the x axis.
         """
+        if x_axis_pos is None:
+            x_axis_pos = x_axis_ticks
+
         fig, axes = plt.subplots(4, sharex=True, figsize=(10,12))
-        fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
-        # make a list of iterations, to be used as x-axis labels
-        iterations = [best_sample_tuple[0] for best_sample_tuple in self.best_samples]
-        # add another element for the inital params set
-        iterations.append("initial")
-        # Get inital params sample
-        init_sample = self.initial_sample
-        # make a list of corresponding values from 0 to n-1
-        x_axis = range(len(iterations))
         # Setup the axis for the performance measure (in blue)
         axes[0].set_ylabel(str(self.performance_measure))
-        axes[0].yaxis.label.set_color('blue')
-        axes[0].tick_params(axis='y', colors='blue')
-        # Get the weighted error performance measure value for all best_samples and for the initial parameter set
-        error_measure_data = [self.performance_measure.error_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] +\
-               [self.performance_measure.error_measure(init_sample)]
+        axes[0].yaxis.label.set_color('black')
+        axes[0].tick_params(axis='y', colors='black')
+        # Get the weighted error performance measure value for all samples
+        error_measure_data = [self.performance_measure.error_measure(s) for s in samples]
         weighted_error_measure_data = [self.performance_measure.error_weight * e for e in error_measure_data]
-        BAR_WIDTH = 0.3 # Calculation below in .bar([..],..) is to center the boxes on the x-tick
-        axes[0].bar([x-BAR_WIDTH/2 for x in x_axis], weighted_error_measure_data, color='m', width=BAR_WIDTH,
-                    label=u"$\\epsilon(), w_{\\epsilon}=" + str(self.performance_measure.error_weight) + u"$") # plot bars for the error measure
-        # Add text for the value of the error_measure
-        for x, bar_top, val in zip(x_axis, weighted_error_measure_data, error_measure_data):
-            axes[0].text(x+BAR_WIDTH/2+0.02, bar_top/2-0.035, str(round(val,2)), color='m')
-        # Get the weighted matches performance measure value for all best_samples and for the initial parameter set
-        matches_measure_data = [self.performance_measure.matches_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] +\
-               [self.performance_measure.matches_measure(init_sample)]
+        axes[0].bar([x-bar_width/2 for x in x_axis_pos], weighted_error_measure_data, color='m', width=bar_width,
+                    label=u"$\\epsilon$") # plot bars for the error measure
+        if show_pm_values:
+            # Add text for the value of the error_measure
+            for x, bar_top, val in zip(x_axis_pos, weighted_error_measure_data, error_measure_data):
+                axes[0].text(x+bar_width/2+0.02, bar_top/2-0.035, str(round(val,2)), color='m')
+        # Get the weighted matches performance measure value for all samples
+        matches_measure_data = [self.performance_measure.matches_measure(s) for s in samples]
         weighted_matches_measure_data = [self.performance_measure.matches_weight * m for m in matches_measure_data]
-        axes[0].bar([x-BAR_WIDTH/2 for x in x_axis], weighted_matches_measure_data, color='red', width=BAR_WIDTH, bottom=weighted_error_measure_data,
-                    label=u"$\\upsilon(), w_{\\upsilon}=" + str(self.performance_measure.matches_weight) + u"$") # plot bars for the matches measure on top of the error measure
+        axes[0].bar([x-bar_width/2 for x in x_axis_pos], weighted_matches_measure_data, color='red', width=bar_width, bottom=weighted_error_measure_data,
+                    label=u"$\\upsilon$") # plot bars for the matches measure on top of the error measure
         # Add text for the value of the matches_measure
-        axes[0].legend(loc='upper left')
-        for x, bar_top_err, bar_top_ma, val in zip(x_axis, weighted_error_measure_data, weighted_matches_measure_data, matches_measure_data):
-            axes[0].text(x+BAR_WIDTH/2+0.02, bar_top_err + (bar_top_ma/2)-0.035, str(round(val,2)), color='red')
-        # Get the complete performance measure value for all best_samples and for the initial parameter set
-        complete_measure_data = [self.performance_measure(best_sample_tuple[1]) for best_sample_tuple in self.best_samples] + [self.performance_measure(init_sample)]
-        # Add text for the value of the complete measure (the weighted sum)
-        for x, bar_top, val in zip(x_axis, [sum(x) for x in zip(weighted_error_measure_data, weighted_matches_measure_data)], complete_measure_data):
-            axes[0].text(x-BAR_WIDTH*1.6-0.02, bar_top-0.03, str(round(val,2)), color='blue')
+        if show_pm_values:
+            for x, bar_top_err, bar_top_ma, val in zip(x_axis_pos, weighted_error_measure_data, weighted_matches_measure_data, matches_measure_data):
+                axes[0].text(x+bar_width/2+0.02, bar_top_err + (bar_top_ma/2)-0.035, str(round(val,2)), color='red')
+        # Get the complete performance measure value for all samples
+        complete_measure_data = [self.performance_measure(s) for s in samples]
+        if show_pm_values:
+            # Add text for the value of the complete measure (the weighted sum)
+            for x, bar_top, val in zip(x_axis_pos, [sum(x) for x in zip(weighted_error_measure_data, weighted_matches_measure_data)], complete_measure_data):
+                axes[0].text(x-bar_width*1.6-0.02, bar_top-0.03, str(round(val,2)), color='black')
+        legend = axes[0].legend(loc='lower right', handletextpad=-1) # use handletextpad to move the text next to the rectangles after they are reduced in size (below)
+        for handle in legend.legendHandles:
+            handle.set_width(7.0)
+            handle.set_height(7.0)
         axes[0].set_ylim(0,1)
         # Setup the axis for the number of matches (in red)
-        axes[1].set_ylabel('Nr. of Matches')
+        axes[1].set_ylabel(u'$m$')
         axes[1].yaxis.label.set_color('red')
         axes[1].tick_params(axis='y', colors='red')
         axes[1].ticklabel_format(useOffset=False) # Forbid offsetting y-axis values
-        axes[1].scatter(x_axis, # plot points for nr of matches
-                        [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
+        axes[1].scatter(x_axis_pos, # plot points for nr of matches
+                        [s.nr_matches for s in samples],
                         color='red')
-        axes[1].plot(x_axis, # connect points with a line to better see how they changed
-                     [best_sample_tuple[1].nr_matches for best_sample_tuple in self.best_samples] + [init_sample.nr_matches],
+        axes[1].plot(x_axis_pos, # connect points with a line to better see how they changed
+                     [s.nr_matches for s in samples],
                      color='red')
         # Setup the axis for the translation error boxplots (in magenta)
-        axes[2].set_ylabel(u"$Err_{translation}$ [m]")
+        axes[2].set_ylabel(u"$\\mathbf{e^t}$ [m]")
         axes[2].yaxis.label.set_color('m')
         axes[2].tick_params(axis='y', colors='m')
-        axes[2].boxplot([best_sample_tuple[1].translation_errors for best_sample_tuple in self.best_samples] + [init_sample.translation_errors],
-                        positions=x_axis)
-        axes[2].set_xticks(x_axis, iterations)
+        axes[2].boxplot([s.translation_errors for s in samples],
+                        positions=x_axis_pos)
+        axes[2].set_xticks(x_axis_pos, x_axis_ticks)
         # Setup the axis for the rotation error boxplots (in magenta)
-        axes[3].set_ylabel(u"$Err_{rotation}$ [deg]")
+        axes[3].set_ylabel(u"$\\mathbf{e^r}$ [deg]")
         axes[3].yaxis.label.set_color('m')
         axes[3].tick_params(axis='y', colors='m')
-        axes[3].boxplot([best_sample_tuple[1].rotation_errors for best_sample_tuple in self.best_samples] + [init_sample.rotation_errors],
-                        positions=x_axis)
-        axes[3].set_xticks(x_axis, iterations)
-        axes[3].set_xticklabels(iterations)
-        axes[3].set_xlabel("iteration")
-        # Save and close
-        path = os.path.join(self._params['plots_directory'], "best_samples_boxplot.svg")
-        fig.savefig(path)
-        print("\tSaved boxplots of best samples to", path)
-        plt.close()
+        axes[3].boxplot([s.rotation_errors for s in samples],
+                        positions=x_axis_pos)
+        axes[3].set_xticks(x_axis_pos, x_axis_ticks)
+        xticklabels = []
+        for i, label in enumerate(x_axis_ticks):
+            if i % xticklabels_spacing == 0:
+                xticklabels.append(label)
+            else:
+                xticklabels.append("")
+        axes[3].set_xticklabels(xticklabels)
+        
+        return fig, axes
 
-    def plot_metric_visualization1d(self, plot_name, param_name):
+    def paramspace_line_visualization_plot(self, plot_name, param_name):
         """
-        Saves a plot to visualize the metric's behaviour.
-
-        Contains data from all available samples of the current EvaluationFunction.
-        Shows all raw datapoints as well as the calculated metric.
-
-        Only supports visualizing one dimension of optimized parameters.
+        Saves a plot to visualize the parameter space along a line.
+        The line varies along the param_name dimension of the parameter space.
+        All other parameters are set to the value from the default_rosparams dict.
+        The plot shows the performance measure's behaviour and the samples' data.
+        Convenience wrapper around _samples_plot, see its doc for further details.
         """
-        # Setup the figure and its axes
-        fig, (nr_matches_axis, translation_err_axis, rotation_err_axis) = plt.subplots(3, sharex=True, sharey=False)
-        plt.setp([a.get_xticklabels() for a in fig.axes[:-1]], visible=False)
-        metric_axes = [nr_matches_axis.twinx(), translation_err_axis.twinx(), rotation_err_axis.twinx()]
-        # set x and y lim for metric axes; Will also imply same x_lim for other axes.
-        nr_matches_axis.set_ylabel("Number of Matches")
-        nr_matches_axis.yaxis.label.set_color('red')
-        nr_matches_axis.tick_params(axis='y', colors='red')
-        translation_err_axis.set_ylabel(u"$Err_{translation}$ [m]")
-        translation_err_axis.yaxis.label.set_color('m')
-        translation_err_axis.tick_params(axis='y', colors='m')
-        rotation_err_axis.set_ylabel(u"$Err_{rotation}$ [deg]")
-        rotation_err_axis.yaxis.label.set_color('c')
-        rotation_err_axis.tick_params(axis='y', colors='c')
-        rotation_err_axis.set_xlabel(param_name)
-
-        # Plot all evaluation function samples we have
-        optimized_param_values = []
-        y_metric = []
-        y_nr_matches = []
-        y_rotation_err = []
-        y_translation_err = []
+        # Get sampels, using the eval function
+        x_axis = []
+        samples = []
         fixed_params = self.eval_function.default_rosparams.copy()
         del(fixed_params[self._to_rosparam(param_name)])
         for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
-            optimized_param_values.append(params_dict[self._to_rosparam(param_name)])
-            y_metric.append(metric_value)
-            y_nr_matches.append(sample.nr_matches)
-            if not sample.nr_matches == 0:
-                y_translation_err.append(sum(sample.translation_errors) / sample.nr_matches)
-                y_rotation_err.append(sum(sample.rotation_errors) / sample.nr_matches)
-            else:
-                y_translation_err.append(0)
-                y_rotation_err.append(0)
-        # Sort the lists before plotting
-        temp_sorted_lists = sorted(zip(*[optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err]))
-        optimized_param_values, y_metric, y_nr_matches, y_rotation_err, y_translation_err = list(zip(*temp_sorted_lists))
-        for metric_axis in metric_axes:
-            self._setup_metric_axis(metric_axis, param_name)
-            metric_axis.plot(optimized_param_values, y_metric, 'b:')
-        nr_matches_axis.plot(optimized_param_values, y_nr_matches, 'r.')
-        translation_err_axis.plot(optimized_param_values, y_translation_err, 'm.')
-        rotation_err_axis.plot(optimized_param_values, y_rotation_err, 'c.')
+            x_axis.append(params_dict[self._to_rosparam(param_name)])
+            samples.append(sample)
+        # Sort both lists by x_axis value before plotting
+        temp_sorted_lists = sorted(zip(*[x_axis, samples]))
+        x_axis, samples = list(zip(*temp_sorted_lists))
+        fig, axes = self._samples_plot(x_axis, samples, np.arange(len(x_axis)), show_pm_values=False, xticklabels_spacing=2)
+        fig.suptitle("Paramspace Projection on " + param_name, fontsize=16, fontweight='bold')
+        axes[3].set_xlabel(param_name)
 
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
         fig.savefig(path)
         print("\tSaved metric plot to", path)
-        plt.close()
+        plt.close(fig)
 
     def plot_gpr_two_param_contour(self, plot_name, param_names):
         """
@@ -699,7 +696,7 @@ class ExperimentCoordinator(object):
         print("Performing grid search on parameter", display_name, "(aka", rosparam_name, ").")
         for step_size in self._params['optimizer_initialization']['grid_search_step_size']:
             print("Setting step size to", step_size)
-            paramspace_grid = {rosparam_name: np.arange(min_bound, max_bound + step_size, step_size)}
+            paramspace_grid = {rosparam_name: np.arange(min_bound, max_bound, step_size)}
             print("Querying at", len(paramspace_grid[rosparam_name]), "locations:")
             print(paramspace_grid)
             self.optimizer.explore(paramspace_grid)
@@ -906,8 +903,8 @@ if __name__ == '__main__': # don't execute when module is imported
                                  "I.e. remove all directories of map matcher runs that didn't finish and, because of that, weren't added to the database.")
         parser.add_argument('--add-samples', '-a',
                             dest='add_samples', nargs='+', help=add_arg_help)
-        parser.add_argument('--plot-metric', '-p',
-                            dest='plot_metric', nargs='+',
+        parser.add_argument('--plot-paramspace-line', '-p',
+                            dest='plot_paramspace_line', nargs='+',
                             help="Plots a 1D visualization of the metric's behaviour when changing the given parameter." +\
                                  " (parameter name has to fit the optimization definitions in the yaml file)")
         parser.add_argument('--3d-plot', '-3d',
@@ -1044,11 +1041,11 @@ if __name__ == '__main__': # don't execute when module is imported
             for sample_path in args.add_samples:
                 experiment_coordinator.sample_db.create_sample_from_map_matcher_results(sample_path, override_existing=True)
             sys.exit()
-        if args.plot_metric:
-            print("--> Mode: Plot Metric <--")
-            param_name = ' '.join(args.plot_metric)
+        if args.plot_paramspace_line:
+            print("--> Mode: Plot Paramspace Projected on Line <--")
+            param_name = ' '.join(args.plot_paramspace_line)
             print("\tFor parameter '", param_name, "'", sep="")
-            experiment_coordinator.plot_metric_visualization1d("metric_visualization_" + param_name.replace(" ", "_") + ".svg", param_name)
+            experiment_coordinator.paramspace_line_visualization_plot("line_projection_" + param_name.replace(" ", "_") + ".svg", param_name)
             sys.exit()
         if args.new_param:
             print("--> Mode: New Parameter Patching <--")

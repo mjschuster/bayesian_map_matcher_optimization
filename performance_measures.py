@@ -59,7 +59,7 @@ class PerformanceMeasure(object):
         """
         Placeholder str representation, meant for LaTeX mathmode parser in matplotlib.
         """
-        return u"$Performance Measure$"
+        return u"Performance Measure $p$"
 
     def __call__(self, sample):
         """
@@ -207,6 +207,9 @@ class MixerMeasure(PerformanceMeasure):
         The weight of the error measure in [0,1].
         """
         return 1 - self.matches_weight
+
+    def __str__(self):
+        return u"$p(\\mathbf{e^t}, \\mathbf{e^r}, m) = " + str(self.matches_weight) + u" \\cdot \\upsilon(m) + " + str(self.error_weight) + u" \\cdot \\epsilon(\\mathbf{e^t}, \\mathbf{e^r})$"
 
     def __call__(self, sample):
         return self.error_weight * self.error_measure(sample) + self.matches_weight * self.matches_measure(sample)
