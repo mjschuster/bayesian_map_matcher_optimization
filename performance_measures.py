@@ -73,7 +73,7 @@ class PerformanceMeasure(object):
         fig, ax = plt.subplots()
         ax.set_xlabel("x")
         ax.set_ylabel(str(self))
-        ax.plot(x_space, self(x_space), label=str(self))
+        ax.plot(x_space, self(x_space))
         ax.set_xlim(x_min, x_max)
         return fig, ax
 
@@ -149,7 +149,7 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         :param max_relevant_error: The maximum translation error that should still be distinguishable from higher errors. (i.e. mapped not too close to 0)
         :param min_relevant_error: Same for the minimum, defaults to 0.05.
         """
-        self.x_min_y_value = 0.98 # determines how close to 1 min_relevant_error gets mapped (max_relevant error always gets mapped to 0)
+        self.x_min_y_value = 0.95 # determines how close to 1 min_relevant_error gets mapped (max_relevant error always gets mapped to 0)
         self.min_relevant_error = float(min_relevant_error)
         self.max_relevant_error = float(max_relevant_error)
         l = 2 # set l to 2, so the function goes from 1 to -1 with the strongest slope at f(max_relevant_error) = 0.
@@ -179,7 +179,7 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         ax.scatter([self.min_relevant_error, self.max_relevant_error],
                    [self(self.min_relevant_error), self(self.max_relevant_error)],
                    c='r', label=u"${(" + str(round(self.min_relevant_error, 2)) + u"," + str(round(self(self.min_relevant_error), 2)) + "),(" + str(round(self.max_relevant_error, 2)) + u"," + str(round(self(self.max_relevant_error), 2)) + u")}$")
-        ax.legend(loc='lower right')
+        ax.legend(loc='upper right')
         ax.set_ylim(-1,1)
         fig.savefig(path)
         fig.clf()
