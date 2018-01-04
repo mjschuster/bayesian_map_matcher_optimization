@@ -292,7 +292,7 @@ class ExperimentCoordinator(object):
     def best_samples_plot(self):
         """
         Creates a plot to visualize how the best known parameters evolved and how good they were.
-        Convenience wrapper around samples_plot, see its doc for more details.
+        Convenience wrapper around _samples_plot, see its doc for more details.
         """
         # make a list of iterations, to be used as x-axis tick labels
         iterations = [best_sample_tuple[0] for best_sample_tuple in self.best_samples]
@@ -302,8 +302,8 @@ class ExperimentCoordinator(object):
         x_axis = range(len(iterations))
         # get the best samples
         best_samples = [best_sample_tuple[1] for best_sample_tuple in self.best_samples]
-        # add the initial sample
-        best_samples.append(self.initial_sample)
+        # add the baseline sample
+        best_samples.append(self.baseline_sample)
         # create the plot and store fix,axes for further fine tuning and saving
         fig, axes = self._samples_plot(x_axis_ticks=iterations, samples=best_samples, x_axis_pos=x_axis, bar_width=0.3)
         fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
@@ -418,7 +418,7 @@ class ExperimentCoordinator(object):
         temp_sorted_lists = sorted(zip(*[x_axis, samples]))
         x_axis, samples = list(zip(*temp_sorted_lists))
         fig, axes = self._samples_plot(x_axis, samples, np.arange(len(x_axis)), show_pm_values=False, xticklabels_spacing=2)
-        fig.suptitle("Paramspace Projection on " + param_name, fontsize=16, fontweight='bold')
+        fig.suptitle("Single Parameter: " + param_name, fontsize=16, fontweight='bold')
         axes[3].set_xlabel(param_name)
 
         # Save and close
@@ -600,7 +600,7 @@ class ExperimentCoordinator(object):
         """
         Returns a predictionspace for the gaussian process.
         :param free_params: Parameters which are supposed to vary in the prediction space.
-                            For all other dimensions, the respective parameter will only have the value from the initial rosparams.
+                            For all other dimensions, the respective parameter will only have the value from the default rosparams.
         :param RESOLUTION: The RESOLUTION for the prediction (higher means better quality)
         """
         predictionspace = np.zeros((len(self.optimizer.keys), np.power(RESOLUTION, len(free_params))))
@@ -777,9 +777,9 @@ class ExperimentCoordinator(object):
             for iteration, sample in self.best_samples:
                 plot_path = os.path.join(self._params['plots_directory'], "violin_plot_" + self.iteration_string(iteration) + ".svg")
                 self.plot_error_distribution(plot_path, sample, max_rotation_error, max_translation_error, iteration)
-            # also (re-)plot the initial params distribution
-            plot_path = os.path.join(self._params['plots_directory'], "violin_plot_initial.svg")
-            self.plot_error_distribution(plot_path, self.initial_sample, max_rotation_error, max_translation_error, "initial")
+            # also (re-)plot the default params distribution
+            plot_path = os.path.join(self._params['plots_directory'], "violin_plot_baseline.svg")
+            self.plot_error_distribution(plot_path, self.baseline_sample, max_rotation_error, max_translation_error, "baseline")
 
         # create a new version of the boxplot which includes the new sample
         self.best_samples_plot()
@@ -831,9 +831,9 @@ class ExperimentCoordinator(object):
         return opt_bounds
 
     @property
-    def initial_sample(self):
+    def baseline_sample(self):
         """
-        Returns the sample of the initial parameterset.
+        Returns the sample of the default parameterset.
         """
         return self.sample_db[self.eval_function.default_rosparams]
 
@@ -850,13 +850,13 @@ class ExperimentCoordinator(object):
         Returns the complete rosparams dict with the best known parameters set.
         Of course, only optimized parameters will potentially be different from the inital param set.
         """
-        # Get the initial parameter values, including those which didn't get optimized
+        # Get the default parameter values, including those which didn't get optimized
         best_rosparams = self.eval_function.default_rosparams.copy()
         # Get the best known optimized parameters as a dict from the optimizer
         best_optimized_params = self.optimizer.res['max']['max_params'].copy()
         # Fix parameter types and round its values
         self.eval_function.preprocess_optimized_params(best_optimized_params)
-        # Update the initial params dict with optimized params dict
+        # Update the default params dict with optimized params dict
         best_rosparams.update(best_optimized_params)
         return best_rosparams
 
