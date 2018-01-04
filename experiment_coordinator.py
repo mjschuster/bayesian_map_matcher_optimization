@@ -20,6 +20,7 @@ import yaml
 import sys
 import shutil # for removing full filetrees
 import itertools
+from sklearn.gaussian_process.kernels import Matern
 from bayes_opt import BayesianOptimization
 
 class ExperimentCoordinator(object):
@@ -90,8 +91,12 @@ class ExperimentCoordinator(object):
         self.optimizer = BayesianOptimization(self.eval_function.evaluate, self.opt_bounds, verbose=0)
         # Create a kwargs member for passing to the maximize method (see iterate())
         # Those parameters will be passed to the GPR member of the optimizer
-        self.gpr_kwargs = {'alpha': self._params['gpr_params']['observation_noise']
-                                    if 'gpr_params' in self._params else 1e-10} # defaults to gpr's default value
+        gpr_params = {'alpha': 1e-10, 'matern_nu': 2.5} # set default parameters
+        if 'gpr_params' in self._params:
+            gpr_params.update(self._params['gpr_params']) # update all fields to the values from the config file (fields undefined in the config will remain at the default value set above)
+        # Build gpr_kwargs dict for further usage
+        self.gpr_kwargs = {'alpha': gpr_params['alpha'], 'kernel': Matern(nu=float(gpr_params['matern_nu']))}
+        print(self.gpr_kwargs)
 
     def initialize_optimizer(self):
         # Get the initialization samples from the EvaluationFunction
