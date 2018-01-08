@@ -693,6 +693,8 @@ class ExperimentCoordinator(object):
         The grid search starts at the min_bound, according to the optimization_defs.
         A sample is drawn for each i*step_size, until that value gets bigger than the 
         max_bound from the optimization_defs.
+
+        This method is not (yet?) intended to use in conjunction with the normal iterate-method.
         """
         # error handling
         if not len(self.optimization_defs) == 1:
@@ -714,6 +716,15 @@ class ExperimentCoordinator(object):
             # just fit the gp hyperparams to the data given via explore, don't choose new samples
             self.optimizer.maximize(init_points=0, n_iter=0, kappa=0, **self.gpr_kwargs)
             self.plot_gpr_single_param(display_name.replace(" ", "_") + "_step_size_" + str(step_size) + ".svg", display_name)
+            # this is kind of hacky, but will induce a string to identify which of the resulting plots and param files corresponds to which step_size
+            self.iteration = step_size
+            # another hacky piece of code to make the Bayesian Optimization output a maximum without having to do at least one iteration
+            self.optimizer.res['max'] = {'max_val': self.optimizer.Y.max(),
+                               'max_params': dict(zip(self.optimizer.keys,
+                                                      self.optimizer.X[self.optimizer.Y.argmax()]))
+                               }
+            
+            self.handle_new_best_parameters()
             # reset optimizer
             self.optimizer = BayesianOptimization(self.eval_function.evaluate, self.opt_bounds, verbose=0)
 
@@ -744,6 +755,19 @@ class ExperimentCoordinator(object):
         if len(display_names) > 1 and len(display_names) < 4: # don't plot all pairs of parameters when there are more then 4, it'll take too much time.
             self.plot_all_two_params()
         # Check if we found a new best parameter set
+        self.handle_new_best_parameters()
+        self.output_sampled_params_table() # output a markdown table with all sampled params
+        if len(display_names) > 2:
+            self.query_points_plot() # output a pcp with lines for each sampled param
+        # increase iteration counter
+        self.iteration += 1
+
+    def handle_new_best_parameters(self):
+        """
+        Call regularily to check whether a new best set of parameters has beend found (e.g. each iteration).
+        If there's a new best parameter set, the method will add it to the best_samples list
+        and (re)create relevant plots and param text files.
+        """
         if self.max_performance_measure < self.optimizer.res['max']['max_val']:
             print("\t\033[1;35mNew maximum found, outputting params and plots!\033[0m")
             self.max_performance_measure = self.optimizer.res['max']['max_val']
@@ -752,11 +776,6 @@ class ExperimentCoordinator(object):
             # store the best known sample in the best_samples dict, for boxplots
             self.best_samples.append((self.iteration, self.max_sample))
             self.plot_all_new_best_params()
-        self.output_sampled_params_table() # output a markdown table with all sampled params
-        if len(display_names) > 2:
-            self.query_points_plot() # output a pcp with lines for each sampled param
-        # increase iteration counter
-        self.iteration += 1
 
     def plot_all_new_best_params(self, plot_all_violin=False):
         """
