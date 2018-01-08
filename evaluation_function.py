@@ -136,12 +136,13 @@ class EvaluationFunction(object):
 
         return optimized_params
 
-    def samples_filtered(self, fixed_params):
+    def samples_filtered(self, fixed_params, enforce_bounds=False):
         """
         Iterator that yields only samples that satisfy all fixed_params definitions.
 
         :param fixed_params: A dict that maps a subset of optimized rosparams to a desired value.
         Returns samples in the same format as __iter__.
+        :param enforce_bounds: If set to True, only samples are returned which also satisfy the current optimization bounds.
         """
         for x, y, s in self:
             # For each sample, check if it's usable:
@@ -149,6 +150,10 @@ class EvaluationFunction(object):
             for p_name, p_value in x.items():
                 if p_name in fixed_params: # For all fixed_params, check if the value is correct
                     if not self.default_rosparams[p_name] == p_value:
+                        usable = False
+                        break
+                else: # For all non-fixed-params: Check if the value is in the optimization bounds
+                    if p_value < self.optimization_bounds[p_name][0] or p_value > self.optimization_bounds[p_name][1]:
                         usable = False
                         break
             if usable:

@@ -23,6 +23,12 @@ import itertools
 from sklearn.gaussian_process.kernels import Matern
 from bayes_opt import BayesianOptimization
 
+colors = {'orange': '#FDB462',
+          'red': '#FB8072',
+          'green': '#8DD3C7',
+          'blue': '#80B1D3',
+          'violet': '#BEBADA'}
+
 class ExperimentCoordinator(object):
     """
     Can be thought of as the 'toplevel' class for this repo.
@@ -202,6 +208,8 @@ class ExperimentCoordinator(object):
         at which the optimizer chose to place its queries.
         Each parallel axis represents one paramater and each line represents one sample (or query point).
 
+        Method only supports plots with three or more optimized parameters.
+
         Based on code from
         https://stackoverflow.com/questions/8230638/parallel-coordinates-plot-in-matplotlib
         """
@@ -330,61 +338,59 @@ class ExperimentCoordinator(object):
             x_axis_pos = x_axis_ticks
 
         fig, axes = plt.subplots(4, sharex=True, figsize=(10,12))
-        # Setup the axis for the performance measure (in blue)
+        # Setup the axis for the performance measure
         axes[0].set_ylabel(str(self.performance_measure))
-        axes[0].yaxis.label.set_color('black')
         axes[0].tick_params(axis='y', colors='black')
         # Get the weighted error performance measure value for all samples
         error_measure_data = [self.performance_measure.error_measure(s) for s in samples]
         weighted_error_measure_data = [self.performance_measure.error_weight * e for e in error_measure_data]
-        axes[0].bar([x-bar_width/2 for x in x_axis_pos], weighted_error_measure_data, color='m', width=bar_width,
+        axes[0].bar([x-bar_width/2 for x in x_axis_pos], weighted_error_measure_data, color=colors['violet'], width=bar_width,
                     label=u"$\\epsilon$") # plot bars for the error measure
         if show_pm_values:
             # Add text for the value of the error_measure
             for x, bar_top, val in zip(x_axis_pos, weighted_error_measure_data, error_measure_data):
-                axes[0].text(x+bar_width/2+0.02, bar_top/2-0.035, str(round(val,2)), color='m')
+                axes[0].text(x+bar_width/2+0.02, bar_top/2-0.035, str(round(val,2)), color=colors['violet'])
         # Get the weighted matches performance measure value for all samples
         matches_measure_data = [self.performance_measure.matches_measure(s) for s in samples]
         weighted_matches_measure_data = [self.performance_measure.matches_weight * m for m in matches_measure_data]
-        axes[0].bar([x-bar_width/2 for x in x_axis_pos], weighted_matches_measure_data, color='red', width=bar_width, bottom=weighted_error_measure_data,
+        axes[0].bar([x-bar_width/2 for x in x_axis_pos], weighted_matches_measure_data, color=colors['red'], width=bar_width, bottom=weighted_error_measure_data,
                     label=u"$\\upsilon$") # plot bars for the matches measure on top of the error measure
         # Add text for the value of the matches_measure
         if show_pm_values:
             for x, bar_top_err, bar_top_ma, val in zip(x_axis_pos, weighted_error_measure_data, weighted_matches_measure_data, matches_measure_data):
-                axes[0].text(x+bar_width/2+0.02, bar_top_err + (bar_top_ma/2)-0.035, str(round(val,2)), color='red')
+                axes[0].text(x+bar_width/2+0.02, bar_top_err + (bar_top_ma/2)-0.035, str(round(val,2)), color=colors['red'])
         # Get the complete performance measure value for all samples
         complete_measure_data = [self.performance_measure(s) for s in samples]
         if show_pm_values:
             # Add text for the value of the complete measure (the weighted sum)
             for x, bar_top, val in zip(x_axis_pos, [sum(x) for x in zip(weighted_error_measure_data, weighted_matches_measure_data)], complete_measure_data):
                 axes[0].text(x-bar_width*1.6-0.02, bar_top-0.03, str(round(val,2)), color='black')
-        legend = axes[0].legend(loc='lower right', handletextpad=-1) # use handletextpad to move the text next to the rectangles after they are reduced in size (below)
+        # use the handles and labels fields to reverse the order of the elements in the legend
+        handles, labels = axes[0].get_legend_handles_labels()
+        legend = axes[0].legend(handles[::-1], labels[::-1], loc='lower right', handletextpad=-1)
         for handle in legend.legendHandles:
             handle.set_width(7.0)
             handle.set_height(7.0)
         axes[0].set_ylim(0,1)
-        # Setup the axis for the number of matches (in red)
+        # Setup the axis for the number of matches
         axes[1].set_ylabel(u'$m$')
-        axes[1].yaxis.label.set_color('red')
-        axes[1].tick_params(axis='y', colors='red')
+        axes[1].tick_params(axis='y', colors='black')
         axes[1].ticklabel_format(useOffset=False) # Forbid offsetting y-axis values
         axes[1].scatter(x_axis_pos, # plot points for nr of matches
                         [s.nr_matches for s in samples],
-                        color='red')
+                        color=colors['red'])
         axes[1].plot(x_axis_pos, # connect points with a line to better see how they changed
                      [s.nr_matches for s in samples],
-                     color='red')
+                     color=colors['red'])
         # Setup the axis for the translation error boxplots (in magenta)
         axes[2].set_ylabel(u"$\\mathbf{e^t}$ [m]")
-        axes[2].yaxis.label.set_color('m')
-        axes[2].tick_params(axis='y', colors='m')
+        axes[2].tick_params(axis='y', colors='black')
         axes[2].boxplot([s.translation_errors for s in samples],
                         positions=x_axis_pos)
         axes[2].set_xticks(x_axis_pos, x_axis_ticks)
         # Setup the axis for the rotation error boxplots (in magenta)
         axes[3].set_ylabel(u"$\\mathbf{e^r}$ [deg]")
-        axes[3].yaxis.label.set_color('m')
-        axes[3].tick_params(axis='y', colors='m')
+        axes[3].tick_params(axis='y', colors='black')
         axes[3].boxplot([s.rotation_errors for s in samples],
                         positions=x_axis_pos)
         axes[3].set_xticks(x_axis_pos, x_axis_ticks)
@@ -747,7 +753,7 @@ class ExperimentCoordinator(object):
             self.best_samples.append((self.iteration, self.max_sample))
             self.plot_all_new_best_params()
         self.output_sampled_params_table() # output a markdown table with all sampled params
-        if len(display_names) > 1:
+        if len(display_names) > 2:
             self.query_points_plot() # output a pcp with lines for each sampled param
         # increase iteration counter
         self.iteration += 1

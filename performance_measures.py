@@ -209,7 +209,8 @@ class MixerMeasure(PerformanceMeasure):
         return 1 - self.matches_weight
 
     def __str__(self):
-        return u"$p(\\mathbf{e^t}, \\mathbf{e^r}, m) = " + str(self.matches_weight) + u" \\cdot \\upsilon(m) + " + str(self.error_weight) + u" \\cdot \\epsilon(\\mathbf{e^t}, \\mathbf{e^r})$"
+        #return u"$p(\\mathbf{e^t}, \\mathbf{e^r}, m) = " + str(self.matches_weight) + u" \\cdot \\upsilon(m) + " + str(self.error_weight) + u" \\cdot \\epsilon(\\mathbf{e^t}, \\mathbf{e^r})$"
+        return u"$p(\\mathbf{e^t}, \\mathbf{e^r}, m)$"
 
     def __call__(self, sample):
         return self.error_weight * self.error_measure(sample) + self.matches_weight * self.matches_measure(sample)
