@@ -772,7 +772,7 @@ class ExperimentCoordinator(object):
             print("\t\033[1;35mNew maximum found, outputting params and plots!\033[0m")
             self.max_performance_measure = self.optimizer.res['max']['max_val']
             # Dump the best parameter set currently known by the optimizer
-            yaml.dump(self.max_rosparams, open("best_rosparams_" + self.iteration_string() + ".yaml", 'w'))
+            yaml.dump(self.max_rosparams, open(os.path.join(self._params['plots_directory'], "best_rosparams_" + self.iteration_string() + ".yaml"), 'w'))
             # store the best known sample in the best_samples dict, for boxplots
             self.best_samples.append((self.iteration, self.max_sample))
             self.plot_all_new_best_params()
