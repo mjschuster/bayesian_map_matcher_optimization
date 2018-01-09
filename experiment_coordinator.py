@@ -24,6 +24,7 @@ from sklearn.gaussian_process.kernels import Matern
 from bayes_opt import BayesianOptimization
 
 colors = {'orange': '#FDB462',
+          'yellow': '#FFFFB3',
           'red': '#FB8072',
           'green': '#8DD3C7',
           'blue': '#80B1D3',
@@ -127,8 +128,6 @@ class ExperimentCoordinator(object):
         axis.set_ylim(self.performance_measure.value_range)
         axis.set_xlabel(param_display_name)
         axis.set_ylabel(str(self.performance_measure))
-        axis.yaxis.label.set_color('blue')
-        axis.tick_params(axis='y', colors='blue')
 
     def output_sampled_params_table(self):
         """
@@ -573,15 +572,15 @@ class ExperimentCoordinator(object):
         y_pred, sigma = self.optimizer.gp.predict(predictionspace, return_std=True)
         # Plot the observations available to the gaussian process
         filtered_X, filtered_Y = self._get_filtered_observations((param_name))
-        metric_axis.plot(filtered_X.T[self._to_optimizer_id(param_name)], filtered_Y, 'b.', markersize=10, label=u'Observations')
+        metric_axis.plot(filtered_X.T[self._to_optimizer_id(param_name)], filtered_Y, '.', color=colors['green'], markersize=10, label=u'Given Observations $D_n$')
         # Plot the gp's prediction mean
         plotspace = predictionspace[:,self._to_optimizer_id(param_name)]
-        metric_axis.plot(plotspace, y_pred, 'b-', label=u'Prediction')
+        metric_axis.plot(plotspace, y_pred, '-', color="black", label=u'Prediction')
         # Plot the gp's prediction 'sigma-tube'
         metric_axis.fill(np.concatenate([plotspace, plotspace[::-1]]),
                          np.concatenate([y_pred - 1.9600 * sigma,
                                         (y_pred + 1.9600 * sigma)[::-1]]),
-                         alpha=.5, fc='b', ec='None', label='95% confidence interval')
+                         alpha=.5, fc=colors['blue'], ec='None', label='95% confidence interval')
 
         # Plot all evaluation function samples we have
         samples_x = []
@@ -592,7 +591,7 @@ class ExperimentCoordinator(object):
         for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
             samples_x.append(params_dict[self._to_rosparam(param_name)])
             samples_y.append(metric_value)
-        metric_axis.scatter(samples_x, samples_y, c='r', label=u"All known samples")
+        metric_axis.scatter(samples_x, samples_y, c=colors['red'], label=u"All Observations $D_*$")
 
         metric_axis.legend(loc='lower right')
 
@@ -1112,13 +1111,39 @@ if __name__ == '__main__': # don't execute when module is imported
                 print("aborted.")
             sys.exit()
 
-        if isinstance(experiment_coordinator._params['optimizer_initialization'], list):
-            print("--> Mode: Standard Experiment <--")
-            experiment_coordinator.initialize_optimizer()
-        else:
-            print("--> Mode: Grid Search Experiment <--")
-            experiment_coordinator.grid_search()
+        if 'optimizer_initialization' in experiment_coordinator._params:
+            if isinstance(experiment_coordinator._params['optimizer_initialization'], list):
+                print("--> Mode: Standard Experiment <--")
+                experiment_coordinator.initialize_optimizer()
+            elif "grid_search_step_size" in experiment_coordinator._params['optimizer_initialization']:
+                print("--> Mode: Grid Search Experiment <--")
+                experiment_coordinator.grid_search()
+                sys.exit()
+        elif "comparison_plot" in experiment_coordinator._params:
+            print("--> Mode: Comparison Plot <--")
+            print("\tComparing the following samples:")
+            # make a list of param_names, to be used as x-axis tick labels and get the parameter sets of the respective samples
+            param_names, param_file_paths = zip(*experiment_coordinator._params["comparison_plot"].items())
+            for name, path in zip(param_names, param_file_paths):
+                print("\t\t", name, ": ", path, sep="")
+            # make a list of corresponding values from 0 to n-1, to fix the positions on the x-axis
+            x_axis = range(len(param_names))
+            best_samples = [experiment_coordinator.sample_db[rosparam.load_file(path)[0][0]] for path in param_file_paths]
+            # create the plot and store fix,axes for further fine tuning and saving
+            fig, axes = experiment_coordinator._samples_plot(x_axis_ticks=param_names, samples=best_samples, x_axis_pos=x_axis, bar_width=0.3)
+            fig.suptitle("Parameter Comparison", fontsize=16, fontweight='bold')
+            axes[3].set_xlabel("Parameter Sets")
+
+            # Save and close
+            path = os.path.join(experiment_coordinator._params['plots_directory'], "comparison_plot.svg")
+            fig.savefig(path)
+            print("\tSaved comparison plot to", path)
+            plt.close(fig)
             sys.exit()
+        else:
+            print("Unknown mode, the optimizer intialization should be a list of dicts for the standard experiment. Exiting.")
+            sys.exit()
+
         while True:
             experiment_coordinator.iterate()
 
