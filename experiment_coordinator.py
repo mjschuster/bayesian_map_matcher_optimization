@@ -452,8 +452,8 @@ class ExperimentCoordinator(object):
         value_range = self.performance_measure.value_range
         # Set labels for all axes
         for ax in [sub_axes for sublist in axes for sub_axes in sublist]:
-            ax.set_xlabel(param_names[0], fontsize=5)
-            ax.set_ylabel(param_names[1], fontsize=5)
+            ax.set_xlabel(param_names[0], fontsize=7)
+            ax.set_ylabel(param_names[1], fontsize=7)
         # Set shared arguments for the contourplot method
         contour_kwargs = {'cmap': 'hot', 'extend': 'both'}
         ############
