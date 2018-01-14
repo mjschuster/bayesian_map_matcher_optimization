@@ -426,6 +426,9 @@ class ExperimentCoordinator(object):
         fig.suptitle("Single Parameter: " + param_name, fontsize=16, fontweight='bold')
         axes[3].set_xlabel(param_name)
 
+        # Add grid lines to boxplots
+        axes[0].grid(axis="y", linestyle="-")
+
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
         fig.savefig(path)
