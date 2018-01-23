@@ -398,7 +398,7 @@ class ExperimentCoordinator(object):
                 xticklabels.append(label)
             else:
                 xticklabels.append("")
-        axes[3].set_xticklabels(xticklabels)
+        axes[3].set_xticklabels(xticklabels, fontsize=16)
         
         return fig, axes
 
