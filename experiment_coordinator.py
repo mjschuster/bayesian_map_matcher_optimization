@@ -103,7 +103,6 @@ class ExperimentCoordinator(object):
             gpr_params.update(self._params['gpr_params']) # update all fields to the values from the config file (fields undefined in the config will remain at the default value set above)
         # Build gpr_kwargs dict for further usage
         self.gpr_kwargs = {'alpha': gpr_params['alpha'], 'kernel': Matern(nu=float(gpr_params['matern_nu']))}
-        print(self.gpr_kwargs)
 
     def initialize_optimizer(self):
         # Get the initialization samples from the EvaluationFunction
@@ -455,8 +454,8 @@ class ExperimentCoordinator(object):
         value_range = self.performance_measure.value_range
         # Set labels for all axes
         for ax in [sub_axes for sublist in axes for sub_axes in sublist]:
-            ax.set_xlabel(param_names[0], fontsize=7)
-            ax.set_ylabel(param_names[1], fontsize=7)
+            ax.set_xlabel(param_names[0], fontsize=9)
+            ax.set_ylabel(param_names[1], fontsize=9)
         # Set shared arguments for the contourplot method
         contour_kwargs = {'cmap': 'hot', 'extend': 'both'}
         ############
@@ -1126,7 +1125,11 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Mode: Comparison Plot <--")
             print("\tComparing the following samples:")
             # make a list of param_names, to be used as x-axis tick labels and get the parameter sets of the respective samples
-            param_names, param_file_paths = zip(*experiment_coordinator._params["comparison_plot"].items())
+            param_names = []
+            param_file_paths = []
+            for pair in experiment_coordinator._params["comparison_plot"]:
+                param_names.append(pair[0])
+                param_file_paths.append(pair[1])
             for name, path in zip(param_names, param_file_paths):
                 print("\t\t", name, ": ", path, sep="")
             # make a list of corresponding values from 0 to n-1, to fix the positions on the x-axis
