@@ -48,7 +48,7 @@ def _run_evaluation(command):
 ###########################################
 # Actual interface functions, those need to be implemented.
 #########################
-def create_evaluation_function_sample(toplevel_directory, sample):
+def create_evaluation_function_sample(toplevel_directory, sample, sample_generator_config):
     """
     DLR-map-matcher-evaluation-specific code to get an evaluation_function Sample from a finished map matcher run.
 
@@ -59,6 +59,14 @@ def create_evaluation_function_sample(toplevel_directory, sample):
     sample.translation_errors = []
     sample.rotation_errors = []
     sample.time = datetime.timedelta(0)
+    # Check if a measure source is specified.
+    # This can be used to chose between measuring sample quality with ground truth data or with incremental localization data.
+    # The latter should only be used with subsequent submaps, probably...
+    measure_source = 'icp_to_ground_truth' # default value
+    if 'measure_source' in sample_generator_config.keys():
+        measure_source = sample_generator_config['measure_source']
+    print("\tUsing measure source", measure_source)
+
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):
         if dirs:
             continue # skip this root if it has subdirs, we're only interested in the file tree leafs.
@@ -78,8 +86,8 @@ def create_evaluation_function_sample(toplevel_directory, sample):
             raise IOError("No statistics.pkl in working dir. Maybe the statistics script failed?", statistics_path)
         print("\tLoading pickle", statistics_path)
         eval_result_data = pickle.load(open(statistics_path, 'rb'), encoding='latin1')
-        sample.translation_errors.extend(eval_result_data['results']['icp_to_ground_truth']['translation'].values())
-        sample.rotation_errors.extend(eval_result_data['results']['icp_to_ground_truth']['rotation'].values())
+        sample.translation_errors.extend(eval_result_data['results'][measure_source]['translation'].values())
+        sample.rotation_errors.extend(eval_result_data['results'][measure_source]['rotation'].values())
         sample.time += datetime.timedelta(seconds=float(eval_result_data['timings']['MapMatcherNode::runBatchMode total']['total']))
     
     for root, dirs, files in os.walk(toplevel_directory, topdown=False, followlinks=True):

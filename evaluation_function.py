@@ -295,7 +295,7 @@ class SampleDatabase(object):
         sample = Sample()
         # This function actually fills the sample with data.
         # Its implementation depends on which map matching pipeline is optimized.
-        INTERFACE_MODULE.create_evaluation_function_sample(results_path, sample)
+        INTERFACE_MODULE.create_evaluation_function_sample(results_path, sample, self.sample_generator_config)
         # Calculate the path where the new sample's pickle file should be placed
         pickle_basename = os.path.basename(results_path)
         if pickle_basename == "results": # In some cases the results are placed in a dir called 'results'
