@@ -175,7 +175,7 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
 
     def plot(self, path, x_min, x_max):
         fig, ax = self._prepare_plot(x_min, x_max)
-        ax.set_xlabel("x: Translation Errors")
+        ax.set_xlabel(u"$e^t_i$")
         ax.scatter([self.min_relevant_error, self.max_relevant_error],
                    [self(self.min_relevant_error), self(self.max_relevant_error)],
                    c='r', label=u"${(" + str(round(self.min_relevant_error, 2)) + u"," + str(round(self(self.min_relevant_error), 2)) + "),(" + str(round(self.max_relevant_error, 2)) + u"," + str(round(self(self.max_relevant_error), 2)) + u")}$")
@@ -302,7 +302,7 @@ class NrMatchesMeasure(PerformanceMeasure):
 
     def plot(self, path, x_min, x_max):
         fig, ax = self._prepare_plot(x_min, x_max)
-        ax.set_xlabel("m: Number of Matches")
+        ax.set_xlabel(u"$m$")
         ax.scatter([self.expected_nr_matches],
                    [self(self.expected_nr_matches)],
                    c='r', label=u"${(" + str(round(self.expected_nr_matches, 2)) + u"," + str(round(self(self.expected_nr_matches), 2)) + ")}$")
@@ -329,7 +329,9 @@ class SinusTestFunction(PerformanceMeasure):
 
 if __name__ == '__main__': # don't execute when module is imported
     import argparse # for the cmd-line interface
-    matplotlib.rcParams['axes.labelsize'] = 24
+    matplotlib.rcParams['axes.labelsize'] = 25
+    matplotlib.rcParams['xtick.labelsize'] = 16
+    matplotlib.rcParams['ytick.labelsize'] = 16
     matplotlib.rcParams['legend.fontsize'] = 18
 
     def error_multi_plot(path, max_relevant_errors, x_min, x_max, resolution=1000):
