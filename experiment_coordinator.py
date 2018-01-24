@@ -365,7 +365,7 @@ class ExperimentCoordinator(object):
                 axes[0].text(x-bar_width*1.6-0.02, bar_top-0.03, str(round(val,2)), color='black')
         # use the handles and labels fields to reverse the order of the elements in the legend
         handles, labels = axes[0].get_legend_handles_labels()
-        legend = axes[0].legend(handles[::-1], labels[::-1], loc='lower right', handletextpad=-1)
+        legend = axes[0].legend(handles[::-1], labels[::-1], loc='upper right', handletextpad=-1)
         for handle in legend.legendHandles:
             handle.set_width(7.0)
             handle.set_height(7.0)
@@ -377,9 +377,6 @@ class ExperimentCoordinator(object):
         axes[1].scatter(x_axis_pos, # plot points for nr of matches
                         [s.nr_matches for s in samples],
                         color=colors['red'])
-        axes[1].plot(x_axis_pos, # connect points with a line to better see how they changed
-                     [s.nr_matches for s in samples],
-                     color=colors['red'])
         # Setup the axis for the translation error boxplots (in magenta)
         axes[2].set_ylabel(u"$\\mathbf{e^t}$ [m]")
         axes[2].tick_params(axis='y', colors='black')
@@ -399,10 +396,14 @@ class ExperimentCoordinator(object):
             else:
                 xticklabels.append("")
         axes[3].set_xticklabels(xticklabels, fontsize=16)
+
+        # Add grid lines to all plots
+        for ax in axes:
+            ax.grid(axis="y", linestyle="dotted")
         
         return fig, axes
 
-    def paramspace_line_visualization_plot(self, plot_name, param_name):
+    def paramspace_line_visualization_plot(self, plot_name, param_name, value_range_list = []):
         """
         Saves a plot to visualize the parameter space along a line.
         The line varies along the param_name dimension of the parameter space.
@@ -414,19 +415,19 @@ class ExperimentCoordinator(object):
         x_axis = []
         samples = []
         fixed_params = self.eval_function.default_rosparams.copy()
+        value_range_list = [round(float(v), 2) for v in value_range_list]
         del(fixed_params[self._to_rosparam(param_name)])
         for params_dict, metric_value, sample in self.eval_function.samples_filtered(fixed_params):
-            x_axis.append(params_dict[self._to_rosparam(param_name)])
-            samples.append(sample)
+            if value_range_list == [] or round(float(params_dict[self._to_rosparam(param_name)]), 2) in value_range_list:
+                x_axis.append(params_dict[self._to_rosparam(param_name)])
+                samples.append(sample)
         # Sort both lists by x_axis value before plotting
         temp_sorted_lists = sorted(zip(*[x_axis, samples]))
         x_axis, samples = list(zip(*temp_sorted_lists))
         fig, axes = self._samples_plot(x_axis, samples, np.arange(len(x_axis)), show_pm_values=False, xticklabels_spacing=2)
         fig.suptitle("Single Parameter: " + param_name, fontsize=16, fontweight='bold')
         axes[3].set_xlabel(param_name)
-
-        # Add grid lines to boxplots
-        axes[0].grid(axis="y", linestyle="-")
+        axes[3].tick_params(labelsize=12) # Reduce the fontsize of the xticklabels, otherwise they overlap
 
         # Save and close
         path = os.path.join(self._params['plots_directory'], plot_name)
@@ -539,7 +540,7 @@ class ExperimentCoordinator(object):
         samples_x, samples_y, samples_z = self._get_filtered_samples(param_names)
         ax_3d.scatter(samples_x, samples_y, samples_z, c='red', label=u"All known samples", s=5)
         # Add legend
-        ax_3d.legend(loc='lower right')
+        ax_3d.legend(loc='upper right')
         # set limits
         ax_3d.set_xlim(self.eval_function.optimization_bounds[self._to_rosparam(param_names[0])])
         ax_3d.set_ylim(self.eval_function.optimization_bounds[self._to_rosparam(param_names[1])])
@@ -938,6 +939,12 @@ if __name__ == '__main__': # don't execute when module is imported
                             dest='plot_paramspace_line', nargs='+',
                             help="Plots a 1D visualization of the metric's behaviour when changing the given parameter." +\
                                  " (parameter name has to fit the optimization definitions in the yaml file)")
+        parser.add_argument('--value-range', '-vr',
+                            dest='value_range', nargs=3, type=float,
+                            help="Only used with --plot-paramspace-line. Adds restrictions on the parameter values of samples that are plottet." +\
+                                 " Expects three values min, max, step_size to create a list of allowed parameter values." +\
+                                 " E.g. -vr 0 5 0.1 would only allow parameter values in [0, 0.1, 0.2, ..., 5.0]." +\
+                                 " Currently only supports step sizes with two decimal places...")
         parser.add_argument('--3d-plot', '-3d',
                             dest='plot3d', nargs='+',
                             help="Loads the supplied experiment state pickle file(s) and opens interactive figures from their states. " +\
@@ -964,7 +971,7 @@ if __name__ == '__main__': # don't execute when module is imported
                                  "Second, that parameter's default value, which should induce the same map matcher behaviour as before the parameter was introduced. " +\
                                  "This method will iterate over all samples in this experiment's sample database and add the new parameter with the given value to each sample. " +\
                                  "The new parameter will only be added if it wasn't already present in the sample's parameter dict.")
-        parser.add_argument('--resume',
+        parser.add_argument('--resume', '-r',
                             help="Expects a path to an old, pickled experiment state. Will try to resume that experiment." +\
                                  "Take care: Changes to the code and to the parameters won't take effect when restarting an old experiment.")
         args = parser.parse_args()
@@ -1076,7 +1083,10 @@ if __name__ == '__main__': # don't execute when module is imported
             print("--> Mode: Plot Paramspace Projected on Line <--")
             param_name = ' '.join(args.plot_paramspace_line)
             print("\tFor parameter '", param_name, "'", sep="")
-            experiment_coordinator.paramspace_line_visualization_plot("line_projection_" + param_name.replace(" ", "_") + ".svg", param_name)
+            value_range_list = []
+            if args.value_range:
+                value_range_list = np.arange(args.value_range[0], args.value_range[1] + args.value_range[2], args.value_range[2])
+            experiment_coordinator.paramspace_line_visualization_plot("line_projection_" + param_name.replace(" ", "_") + ".svg", param_name, value_range_list)
             sys.exit()
         if args.new_param:
             print("--> Mode: New Parameter Patching <--")
