@@ -312,7 +312,7 @@ class ExperimentCoordinator(object):
         best_samples.append(self.baseline_sample)
         # create the plot and store fix,axes for further fine tuning and saving
         fig, axes = self._samples_plot(x_axis_ticks=iterations, samples=best_samples, x_axis_pos=x_axis, bar_width=0.3)
-        fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
+        #fig.suptitle("Best Sample per Iteration", fontsize=16, fontweight='bold')
         axes[3].set_xlabel("iteration nr.")
 
         # Save and close
@@ -377,6 +377,7 @@ class ExperimentCoordinator(object):
         axes[1].scatter(x_axis_pos, # plot points for nr of matches
                         [s.nr_matches for s in samples],
                         color=colors['red'])
+        axes[1].set_ylim(bottom=0)
         # Setup the axis for the translation error boxplots (in magenta)
         axes[2].set_ylabel(u"$\\mathbf{e^t}$ [m]")
         axes[2].tick_params(axis='y', colors='black')
@@ -425,7 +426,7 @@ class ExperimentCoordinator(object):
         temp_sorted_lists = sorted(zip(*[x_axis, samples]))
         x_axis, samples = list(zip(*temp_sorted_lists))
         fig, axes = self._samples_plot(x_axis, samples, np.arange(len(x_axis)), show_pm_values=False, xticklabels_spacing=2)
-        fig.suptitle("Single Parameter: " + param_name, fontsize=16, fontweight='bold')
+        #fig.suptitle(param_name, fontsize=16, fontweight='bold')
         axes[3].set_xlabel(param_name)
         axes[3].tick_params(labelsize=12) # Reduce the fontsize of the xticklabels, otherwise they overlap
 
@@ -1147,7 +1148,7 @@ if __name__ == '__main__': # don't execute when module is imported
             best_samples = [experiment_coordinator.sample_db[rosparam.load_file(path)[0][0]] for path in param_file_paths]
             # create the plot and store fix,axes for further fine tuning and saving
             fig, axes = experiment_coordinator._samples_plot(x_axis_ticks=param_names, samples=best_samples, x_axis_pos=x_axis, bar_width=0.3)
-            fig.suptitle("Parameter Comparison", fontsize=16, fontweight='bold')
+            #fig.suptitle("Parameter Comparison", fontsize=16, fontweight='bold')
             axes[3].set_xlabel("Parameter Sets")
 
             # Save and close
