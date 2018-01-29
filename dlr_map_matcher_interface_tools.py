@@ -109,7 +109,7 @@ def generate_sample(rosparams, sample_generator_config):
     """
 
     # Create the path to the folder in which all information for this map matcher run is stored
-    env_dir = os.path.join(sample_generator_config['environment'], time.strftime("%Y-%m-%d_%H:%M:%S"))
+    env_dir = os.path.join(sample_generator_config['environment'], time.strftime("%Y-%m-%d_%H-%M-%S"))
     if os.path.exists(env_dir):
         raise IOError(env_dir, "already exists, can't generate sample here!")
     os.makedirs(env_dir) # Create the folder on disk
