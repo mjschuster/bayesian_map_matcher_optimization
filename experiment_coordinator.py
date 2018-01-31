@@ -104,7 +104,7 @@ class ExperimentCoordinator(object):
         # Build gpr_kwargs dict for further usage
         self.gpr_kwargs = {'alpha': gpr_params['alpha'], 'kernel': Matern(nu=float(gpr_params['matern_nu']))}
 
-    def initialize_optimizer(self, use_previous_observations=False):
+    def initialize_optimizer(self, use_previous_observations=False, only_nonzero_observations=False):
         """
         Method for initializing the optimizer with a set of observations.
         The method will automatically initialization observations from the parameters defined via the experiment.yaml file.
@@ -124,12 +124,12 @@ class ExperimentCoordinator(object):
                 init_dict[p_name].append(p_value)
         # If desired, previously generated observations will be used as initialization as well.
         if use_previous_observations:
-            print("\tUsing all previous observations to initialize the optimizer.")
-            for sample_complete_rosparams in self.eval_function: # gets the params dict of each sample
-                # only get values of optimized params; requires at least one initialization value defined in the experiment.yaml, but that should be the case anyway.
-                for optimized_rosparam in self._params['optimizer_initialization'][0].keys():
-                    init_dict[optimized_rosparam].append(sample_complete_rosparams[optimized_rosparam])
-                print("\t\tAdded observation at", {key:sample_complete_rosparams[key] for key in optimized_rosparams})
+            print("\tUsing previous observations to initialize the optimizer.")
+            for sample_complete_rosparams, y, s in self.eval_function: # gets the params dict of each sample
+                if y > 0 or not only_nonzero_observations:
+                    # only get values of optimized params; requires at least one initialization value defined in the experiment.yaml, but that should be the case anyway.
+                    for optimized_rosparam in self._params['optimizer_initialization'][0].keys():
+                        init_dict[optimized_rosparam].append(sample_complete_rosparams[optimized_rosparam])
         # Add the initilizations via the BayesianOptimization framework's explore method
         self.optimizer.explore(init_dict)
 
@@ -941,7 +941,10 @@ if __name__ == '__main__': # don't execute when module is imported
                             help="Lets the optimizer use kappa_fine_tuning to rather improve upon the current known maximum.")
         parser.add_argument('--use-previous-observations', '-oa',
                             dest='use_previous_observations', action='store_true',
-                            help="Will initialize the optimizer will ALL samples in the database that fit the current optimization definitions")
+                            help="Will initialize the optimizer with ALL samples in the database that fit the current optimization definitions")
+        parser.add_argument('--use-previous-nonzero-observations', '-onz',
+                            dest='use_previous_nonzero_observations', action='store_true',
+                            help="Will initialize the optimizer will samples in the database that fit the current optimization definitions and have a nonzero performance measure.")
         parser.add_argument('--list-all-samples', '-la',
                             dest='list_all_samples', action='store_true',
                             help="Lists all samples available in the database and exits.")
@@ -1147,7 +1150,8 @@ if __name__ == '__main__': # don't execute when module is imported
         if 'optimizer_initialization' in experiment_coordinator._params:
             if isinstance(experiment_coordinator._params['optimizer_initialization'], list):
                 print("--> Mode: Standard Experiment <--")
-                experiment_coordinator.initialize_optimizer(args.use_previous_observations)
+                experiment_coordinator.initialize_optimizer(use_previous_observations=(args.use_previous_observations or args.use_previous_nonzero_observations),
+                                                            only_nonzero_observations=args.use_previous_nonzero_observations)
             elif "grid_search_step_size" in experiment_coordinator._params['optimizer_initialization']:
                 print("--> Mode: Grid Search Experiment <--")
                 experiment_coordinator.grid_search()
