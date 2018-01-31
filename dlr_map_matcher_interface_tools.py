@@ -54,6 +54,7 @@ def create_evaluation_function_sample(toplevel_directory, sample, sample_generat
 
     :param toplevel_directory: The directory from which the Sample's can be generated.
     :param sample: Sample object which should be filled with data
+    :param sample_generator_config: An arbitrary dictionary with additional parameters for the sample generation process. Will get copied from the respective experiment yaml file's field.
     """
     sample.origin = toplevel_directory
     sample.translation_errors = []
