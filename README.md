@@ -1,4 +1,4 @@
-This repo aims at automatically optimizing parameters of map matcher pipelines.
+This repo contains code to automatically optimize parameters of map matcher pipelines, using Bayesian optimization.
 The initial code was created as part of my master's thesis and will hopefully get more polished in the future.
 
 Dependencies:
