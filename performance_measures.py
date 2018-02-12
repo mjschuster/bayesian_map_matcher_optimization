@@ -179,8 +179,12 @@ class LogisticTranslationErrorMeasure(LogisticFunction):
         ax.scatter([self.min_relevant_error, self.max_relevant_error],
                    [self(self.min_relevant_error), self(self.max_relevant_error)],
                    c='r', label=u"${(" + str(round(self.min_relevant_error, 2)) + u"," + str(round(self(self.min_relevant_error), 2)) + "),(" + str(round(self.max_relevant_error, 2)) + u"," + str(round(self(self.max_relevant_error), 2)) + u")}$")
-        ax.legend(loc='upper right')
+        ax.axvline(linestyle='dashed', color='gray', x=self.min_relevant_error)
+        ax.axhline(linestyle='dashed', color='gray', y=self(self.min_relevant_error))
+        ax.axvline(linestyle='dashed', color='gray', x=self.max_relevant_error)
+        ax.axhline(linestyle='dashed', color='gray', y=self(self.max_relevant_error))
         ax.set_ylim(-1,1)
+        plt.tight_layout()
         fig.savefig(path)
         fig.clf()
 
@@ -306,8 +310,10 @@ class NrMatchesMeasure(PerformanceMeasure):
         ax.scatter([self.expected_nr_matches],
                    [self(self.expected_nr_matches)],
                    c='r', label=u"${(" + str(round(self.expected_nr_matches, 2)) + u"," + str(round(self(self.expected_nr_matches), 2)) + ")}$")
-        ax.legend(loc='lower left')
+        ax.axvline(linestyle='dashed', color='gray', x=self.expected_nr_matches)
+        ax.axhline(linestyle='dashed', color='gray', y=self(self.expected_nr_matches))
         ax.set_ylim(0,1)
+        plt.tight_layout()
         fig.savefig(path)
         fig.clf()
 
