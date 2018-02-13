@@ -288,7 +288,7 @@ class NrMatchesMeasure(PerformanceMeasure):
     def __init__(self, expected_nr_matches):
         """
         :param expected_nr_matches: A number of matches which is already considered quite good for the dataset
-                                    Will be used to calculate a, so that the function passes point (a, 0.98)
+                                    Will be used to calculate a, so that the function passes point (expected_nr_matches, 0.98)
         """
         self.expected_nr_matches = int(expected_nr_matches)
         # Can be used to tune how much space the measure has left for matches above the expected_nr_matches threshold
